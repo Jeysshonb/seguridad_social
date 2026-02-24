@@ -14,6 +14,7 @@ import streamlit as st
 
 from seguridad_social_parte1 import (
     exportar_csv,
+    generar_reporte_inconsistencias,
     parse_pila_txt,
     resumen_planilla,
 )
@@ -56,6 +57,12 @@ with st.sidebar:
         value=True,
         help=f"Guarda el archivo en:\n{SALIDA_DIR}",
     )
+    ref_archivo = st.file_uploader(
+        "Referencia (pila_modificada.txt)",
+        type=["txt"],
+        accept_multiple_files=False,
+        help="Opcional: genera un reporte de diferencias vs la referencia.",
+    )
     st.markdown("---")
     st.caption("seguridad_social_parte1.py v2.0")
 
@@ -97,25 +104,43 @@ with st.expander("ℹ️ Informacion empresa / encabezado"):
     st.json(info_empresa)
 
 # ---------------------------------------------------------------------------
+# Reporte de inconsistencias (opcional)
+# ---------------------------------------------------------------------------
+if ref_archivo is not None:
+    with st.spinner("Generando reporte de inconsistencias..."):
+        ruta_ref = SALIDA_DIR / f"_ref_{ref_archivo.name}"
+        ruta_ref.write_bytes(ref_archivo.getvalue())
+        ruta_reporte = SALIDA_DIR / f"{Path(archivo.name).stem}_reporte.txt"
+        generar_reporte_inconsistencias(df, ruta_ref, ruta_reporte)
+        reporte_bytes = ruta_reporte.read_bytes()
+    st.success(f"Reporte generado: `{ruta_reporte}`")
+    st.download_button(
+        label="Descargar reporte de inconsistencias",
+        data=reporte_bytes,
+        file_name=ruta_reporte.name,
+        mime='text/plain',
+    )
+
+# ---------------------------------------------------------------------------
 # Filtros
 # ---------------------------------------------------------------------------
 st.subheader("🔍 Filtros")
 fcol1, fcol2, fcol3, fcol4, fcol5 = st.columns(5)
 
 with fcol1:
-    ops_eps = sorted(df['Cod_EPS'].dropna().unique().tolist()) if 'Cod_EPS' in df.columns else []
+    ops_eps = sorted(df['cod_eps'].dropna().unique().tolist()) if 'cod_eps' in df.columns else []
     filtro_eps = st.multiselect("EPS", ops_eps, default=[])
 
 with fcol2:
-    ops_ccf = sorted(df['Cod_CCF'].dropna().unique().tolist()) if 'Cod_CCF' in df.columns else []
+    ops_ccf = sorted(df['cod_ccf'].dropna().unique().tolist()) if 'cod_ccf' in df.columns else []
     filtro_ccf = st.multiselect("CCF", ops_ccf, default=[])
 
 with fcol3:
-    ops_afp = sorted(df['Admin_AFP'].dropna().unique().tolist()) if 'Admin_AFP' in df.columns else []
+    ops_afp = sorted(df['admin_afp'].dropna().unique().tolist()) if 'admin_afp' in df.columns else []
     filtro_afp = st.multiselect("AFP", ops_afp, default=[])
 
 with fcol4:
-    ops_tipo = sorted(df['Tipo_Cotizante'].dropna().unique().tolist()) if 'Tipo_Cotizante' in df.columns else []
+    ops_tipo = sorted(df['tipo_cotizante'].dropna().unique().tolist()) if 'tipo_cotizante' in df.columns else []
     filtro_tipo = st.multiselect("Tipo cotizante", ops_tipo, default=[])
 
 with fcol5:
@@ -125,19 +150,19 @@ with fcol5:
 df_filtrado = df.copy()
 
 if filtro_eps:
-    df_filtrado = df_filtrado[df_filtrado['Cod_EPS'].isin(filtro_eps)]
+    df_filtrado = df_filtrado[df_filtrado['cod_eps'].isin(filtro_eps)]
 if filtro_ccf:
-    df_filtrado = df_filtrado[df_filtrado['Cod_CCF'].isin(filtro_ccf)]
+    df_filtrado = df_filtrado[df_filtrado['cod_ccf'].isin(filtro_ccf)]
 if filtro_afp:
-    df_filtrado = df_filtrado[df_filtrado['Admin_AFP'].isin(filtro_afp)]
+    df_filtrado = df_filtrado[df_filtrado['admin_afp'].isin(filtro_afp)]
 if filtro_tipo:
-    df_filtrado = df_filtrado[df_filtrado['Tipo_Cotizante'].isin(filtro_tipo)]
+    df_filtrado = df_filtrado[df_filtrado['tipo_cotizante'].isin(filtro_tipo)]
 if buscar:
     mask = (
-        df_filtrado.get('Nombre_Completo', pd.Series(dtype=str))
+        df_filtrado.get('nombre_completo', pd.Series(dtype=str))
         .str.contains(buscar.upper(), case=False, na=False)
         |
-        df_filtrado.get('No_ID', pd.Series(dtype=str))
+        df_filtrado.get('no_id', pd.Series(dtype=str))
         .str.contains(buscar, case=False, na=False)
     )
     df_filtrado = df_filtrado[mask]
@@ -150,14 +175,14 @@ st.caption(f"Mostrando {len(df_filtrado):,} de {len(df):,} registros")
 st.subheader("📊 Datos de empleados")
 
 cols_default = [
-    'No', 'Tipo_ID', 'No_ID', 'Nombre_Completo',
-    'Tipo_Cotizante', 'Cod_Municipio',
-    'ING', 'Fecha_ING', 'RET', 'Fecha_RET', 'VST', 'SLN',
-    'Cod_Admin_AFP', 'Admin_AFP', 'Dias_AFP', 'IBC_AFP', 'Tarifa_AFP', 'Valor_AFP',
-    'Cod_EPS',       'Admin_EPS', 'Dias_EPS', 'IBC_EPS', 'Tarifa_EPS', 'Valor_EPS',
-    'Dias_ARL',                   'IBC_ARL',  'Tarifa_ARL', 'Valor_ARL',
-    'Cod_CCF',       'Admin_CCF', 'Dias_CCF', 'IBC_CCF', 'Tarifa_CCF', 'Valor_CCF',
-    'IBC', 'Horas_Laboradas', 'Exonerado',
+    'no', 'tipo_id', 'no_id', 'nombre_completo',
+    'tipo_cotizante', 'cod_municipio',
+    'ing', 'fecha_ing', 'ret', 'fecha_ret', 'vst', 'sln',
+    'cod_admin_afp', 'admin_afp', 'dias_afp', 'ibc_afp', 'tarifa_afp', 'valor_afp',
+    'cod_eps',       'admin_eps', 'dias_eps', 'ibc_eps', 'tarifa_eps', 'valor_eps',
+    'dias_arl',                  'ibc_arl',  'tarifa_arl', 'valor_arl',
+    'cod_ccf',       'admin_ccf', 'dias_ccf', 'ibc_ccf', 'tarifa_ccf', 'valor_ccf',
+    'ibc', 'horas_laboradas', 'exonerado',
 ]
 cols_disp  = [c for c in cols_default if c in df_filtrado.columns]
 cols_extra = [c for c in df_filtrado.columns if c not in cols_default]
@@ -200,9 +225,9 @@ st.subheader("📈 Analisis rapido")
 tab1, tab2, tab3, tab4 = st.tabs(["Por EPS", "Por AFP", "Por CCF", "Dias cotizados"])
 
 with tab1:
-    if 'Cod_EPS' in df_filtrado.columns and 'IBC_EPS' in df_filtrado.columns:
+    if 'cod_eps' in df_filtrado.columns and 'ibc_eps' in df_filtrado.columns:
         grp = (
-            df_filtrado.groupby('Cod_EPS', dropna=False)['IBC_EPS']
+            df_filtrado.groupby('cod_eps', dropna=False)['ibc_eps']
             .sum().sort_values(ascending=False).reset_index()
         )
         grp.columns = ['EPS', 'IBC EPS Total']
@@ -211,9 +236,9 @@ with tab1:
         st.info("No hay datos de EPS.")
 
 with tab2:
-    if 'Admin_AFP' in df_filtrado.columns and 'Valor_AFP' in df_filtrado.columns:
+    if 'admin_afp' in df_filtrado.columns and 'valor_afp' in df_filtrado.columns:
         grp = (
-            df_filtrado.groupby('Admin_AFP', dropna=False)['Valor_AFP']
+            df_filtrado.groupby('admin_afp', dropna=False)['valor_afp']
             .sum().sort_values(ascending=False).reset_index()
         )
         grp.columns = ['AFP', 'Valor AFP Total']
@@ -222,9 +247,9 @@ with tab2:
         st.info("No hay datos de AFP.")
 
 with tab3:
-    if 'Cod_CCF' in df_filtrado.columns and 'Valor_CCF' in df_filtrado.columns:
+    if 'cod_ccf' in df_filtrado.columns and 'valor_ccf' in df_filtrado.columns:
         grp = (
-            df_filtrado.groupby('Cod_CCF', dropna=False)['Valor_CCF']
+            df_filtrado.groupby('cod_ccf', dropna=False)['valor_ccf']
             .sum().sort_values(ascending=False).reset_index()
         )
         grp.columns = ['CCF', 'Valor CCF Total']
@@ -233,8 +258,8 @@ with tab3:
         st.info("No hay datos de CCF.")
 
 with tab4:
-    if 'Dias_AFP' in df_filtrado.columns:
-        dist = df_filtrado['Dias_AFP'].value_counts().sort_index().reset_index()
+    if 'dias_afp' in df_filtrado.columns:
+        dist = df_filtrado['dias_afp'].value_counts().sort_index().reset_index()
         dist.columns = ['Dias cotizados', 'Cantidad']
         st.bar_chart(dist.set_index('Dias cotizados'))
     else:
