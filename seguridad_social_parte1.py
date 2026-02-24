@@ -128,29 +128,51 @@ def cargar_codigos_admin(ruta: Path = None) -> dict:
     """Carga la tabla de codigos de administradoras desde codigos_admin.txt."""
     if ruta is None:
         ruta = Path(__file__).with_name('codigos_admin.txt')
+    ruta_autogen = Path(__file__).with_name('codigos_admin_autogen.txt')
 
     if not ruta.exists():
-        return dict(DEFAULT_CODIGOS_ADMIN)
+        codigos_base = dict(DEFAULT_CODIGOS_ADMIN)
+    else:
+        codigos_base = {}
 
-    codigos = {}
-    try:
-        contenido = ruta.read_text(encoding='utf-8')
-    except Exception:
-        contenido = ruta.read_text(encoding='latin-1')
+    if ruta.exists():
+        try:
+            contenido = ruta.read_text(encoding='utf-8')
+        except Exception:
+            contenido = ruta.read_text(encoding='latin-1')
 
-    for linea in contenido.splitlines():
-        linea = linea.strip()
-        if not linea or linea.startswith('#') or linea.startswith('['):
-            continue
-        if ';' not in linea:
-            continue
-        codigo, nombre = linea.split(';', 1)
-        codigo = codigo.strip().upper()
-        nombre = nombre.strip()
-        if codigo:
-            codigos[codigo] = nombre
+        for linea in contenido.splitlines():
+            linea = linea.strip()
+            if not linea or linea.startswith('#') or linea.startswith('['):
+                continue
+            if ';' not in linea:
+                continue
+            codigo, nombre = linea.split(';', 1)
+            codigo = codigo.strip().upper()
+            nombre = nombre.strip()
+            if codigo:
+                codigos_base[codigo] = nombre
 
-    return codigos or dict(DEFAULT_CODIGOS_ADMIN)
+    # Sobrescribir con autogen si existe
+    if ruta_autogen.exists():
+        try:
+            contenido = ruta_autogen.read_text(encoding='utf-8')
+        except Exception:
+            contenido = ruta_autogen.read_text(encoding='latin-1')
+
+        for linea in contenido.splitlines():
+            linea = linea.strip()
+            if not linea or linea.startswith('#') or linea.startswith('['):
+                continue
+            if ';' not in linea:
+                continue
+            codigo, nombre = linea.split(';', 1)
+            codigo = codigo.strip().upper()
+            nombre = nombre.strip()
+            if codigo:
+                codigos_base[codigo] = nombre
+
+    return codigos_base or dict(DEFAULT_CODIGOS_ADMIN)
 
 
 CODIGOS_ADMIN = cargar_codigos_admin()
@@ -244,6 +266,13 @@ def _parse_money(valor):
     texto = str(valor).strip()
     if not texto or texto == '$':
         return None
+    t = texto.replace('$', '').replace(' ', '')
+    if re.fullmatch(r'\d+,\d{2}', t):
+        try:
+            num = float(t.replace(',', '.'))
+            return int(round(num * 1000))
+        except Exception:
+            pass
     texto = texto.replace('$', '').replace(',', '').replace(' ', '')
     texto = texto.replace('.', '')
     if not texto:
@@ -281,37 +310,517 @@ def _parse_flag(valor):
     return None
 
 
-def generar_reporte_inconsistencias(
+def _codigo_valido(codigo: str, tipo: str) -> bool:
+    if codigo is None:
+        return False
+    c = str(codigo).strip().upper()
+    if not c:
+        return False
+    if tipo == 'afp':
+        return re.fullmatch(r'\d{6}', c) is not None
+    if tipo == 'eps':
+        return re.fullmatch(r'(EPS|ESS|EPSC|EPSIC|CCFC|MIN)[A-Z0-9]+', c) is not None
+    if tipo == 'ccf':
+        return re.fullmatch(r'CCF\d{2,3}', c) is not None
+    return False
+
+
+def _map_admin_por_nombre(tipo: str) -> dict:
+    mapping = {}
+    for codigo, nombre in CODIGOS_ADMIN.items():
+        if not _codigo_valido(codigo, tipo):
+            continue
+        key = _normalizar_admin(nombre)
+        if not key:
+            continue
+        if key not in mapping:
+            mapping[key] = codigo
+    return mapping
+
+
+def _inferir_codigos_por_nombre(
     df_out: pd.DataFrame,
-    ruta_referencia,
-    ruta_reporte: Path = None,
+    df_ref: pd.DataFrame,
+    tipo: str,
+    code_col: str,
+    ref_name_col: str,
+):
+    df_out = df_out.copy()
+    df_ref = df_ref.copy()
+
+    df_ref['no_key'] = pd.to_numeric(df_ref.get('no'), errors='coerce')
+    df_out['no_key'] = pd.to_numeric(df_out.get('no'), errors='coerce')
+
+    df_out = df_out.drop_duplicates(subset=['no_key'])
+    df_ref_c = df_ref[df_ref['no_key'].notna()].copy()
+    df_out_c = df_out[df_out['no_key'].notna()].copy()
+
+    if ref_name_col not in df_ref_c.columns or code_col not in df_out_c.columns:
+        return df_out, []
+
+    df_merge = df_ref_c[['no_key', ref_name_col]].merge(
+        df_out_c[['no_key', code_col]],
+        on='no_key',
+        how='inner',
+    )
+
+    df_merge['name_norm'] = df_merge[ref_name_col].map(_normalizar_admin)
+    df_merge['code_norm'] = df_merge[code_col].astype(str).str.strip().str.upper()
+
+    # Mapa nombre -> codigo usando filas con codigo valido
+    mask_valid = df_merge['code_norm'].map(lambda c: _codigo_valido(c, tipo))
+    mask_valid &= df_merge['name_norm'].notna() & (df_merge['name_norm'] != '')
+    df_valid = df_merge[mask_valid].copy()
+
+    map_data = {}
+    if not df_valid.empty:
+        map_data = (
+            df_valid.groupby('name_norm')['code_norm']
+            .agg(lambda x: x.value_counts().index[0])
+            .to_dict()
+        )
+
+    # Mapa estatico desde codigos_admin
+    map_static = _map_admin_por_nombre(tipo)
+
+    # Data tiene prioridad
+    map_total = dict(map_static)
+    map_total.update(map_data)
+
+    # Aplicar inferencia a filas con codigo invalido/vacio
+    df_need = df_ref_c[['no_key', ref_name_col]].copy()
+    df_need['name_norm'] = df_need[ref_name_col].map(_normalizar_admin)
+    df_need['code_inf'] = df_need['name_norm'].map(map_total)
+
+    df_out_c['code_norm'] = df_out_c[code_col].astype(str).str.strip().str.upper()
+    need_mask = ~df_out_c['code_norm'].map(lambda c: _codigo_valido(c, tipo))
+
+    df_out_c = df_out_c.merge(df_need[['no_key', 'code_inf']], on='no_key', how='left')
+    df_out_c.loc[need_mask, code_col] = df_out_c.loc[need_mask, 'code_inf']
+    df_out_c = df_out_c.drop(columns=['code_norm', 'code_inf'])
+
+    # Actualizar df_out original
+    df_out = df_out.drop(columns=[c for c in ['code_norm'] if c in df_out.columns], errors='ignore')
+    df_out = df_out.merge(df_out_c[['no_key', code_col]], on='no_key', how='left', suffixes=('', '_new'))
+    if f"{code_col}_new" in df_out.columns:
+        df_out[code_col] = df_out[f"{code_col}_new"]
+        df_out = df_out.drop(columns=[f"{code_col}_new"])
+
+    inferidos = []
+    for name_norm, code in map_total.items():
+        if name_norm and code:
+            inferidos.append(f"{tipo.upper()};{name_norm};{code}")
+
+    return df_out, inferidos
+
+
+def _extraer_overrides_admin(df_out: pd.DataFrame, df_ref: pd.DataFrame) -> dict:
+    """
+    Construye overrides de nombres de administradoras usando referencia.
+    Retorna dict con llaves: afp, eps, ccf.
+    """
+    df_out = df_out.copy()
+    df_ref = df_ref.copy()
+
+    df_ref['no_key'] = pd.to_numeric(df_ref.get('no'), errors='coerce')
+    df_out['no_key'] = pd.to_numeric(df_out.get('no'), errors='coerce')
+
+    df_out = df_out.drop_duplicates(subset=['no_key'])
+    comunes = sorted(
+        set(df_ref['no_key'].dropna().astype(int).tolist())
+        & set(df_out['no_key'].dropna().astype(int).tolist())
+    )
+    if not comunes:
+        return {'afp': {}, 'eps': {}, 'ccf': {}}
+
+    df_ref_c = df_ref[df_ref['no_key'].isin(comunes)].copy()
+    df_out_c = df_out[df_out['no_key'].isin(comunes)].copy()
+    df_cmp = df_ref_c.merge(df_out_c, on='no_key', suffixes=('_ref', '_out'))
+
+    def _build_map(code_col: str, ref_col: str) -> dict:
+        if code_col not in df_cmp.columns or ref_col not in df_cmp.columns:
+            return {}
+        sub = df_cmp[[code_col, ref_col]].copy()
+        sub[code_col] = sub[code_col].astype(str).str.strip().str.upper()
+        sub[ref_col] = sub[ref_col].astype(str).str.strip()
+        sub = sub[(sub[code_col] != '') & (sub[ref_col] != '')]
+        if sub.empty:
+            return {}
+        return (
+            sub.groupby(code_col)[ref_col]
+            .agg(lambda x: x.value_counts().index[0])
+            .to_dict()
+        )
+
+    return {
+        'afp': _build_map('cod_admin_afp', 'administradora'),
+        'eps': _build_map('cod_eps', 'administradora_1'),
+        'ccf': _build_map('cod_ccf', 'administradora_ccf'),
+    }
+
+
+def _aplicar_overrides_admin(df_out: pd.DataFrame, overrides: dict) -> pd.DataFrame:
+    df_out = df_out.copy()
+    if not overrides:
+        return df_out
+    for key, col_code, col_name in [
+        ('afp', 'cod_admin_afp', 'admin_afp'),
+        ('eps', 'cod_eps', 'admin_eps'),
+        ('ccf', 'cod_ccf', 'admin_ccf'),
+    ]:
+        mapa = overrides.get(key, {})
+        if not mapa:
+            continue
+        if col_code in df_out.columns and col_name in df_out.columns:
+            df_out[col_name] = df_out[col_code].map(mapa).fillna(df_out[col_name])
+    return df_out
+
+
+def _escribir_codigos_autogen(overrides: dict, ruta: Path) -> None:
+    if not overrides:
+        return
+    lineas = [
+        "# Codigos administradoras autogenerados",
+        "# Formato: CODIGO;NOMBRE",
+        "# Fuente: referencias (pila_modificada / comparacion)",
+        "",
+    ]
+    for seccion, titulo in [
+        ('afp', 'AFP'),
+        ('eps', 'EPS'),
+        ('ccf', 'CCF'),
+    ]:
+        mapa = overrides.get(seccion, {})
+        if not mapa:
+            continue
+        lineas.append(f"[{titulo}]")
+        for codigo, nombre in sorted(mapa.items(), key=lambda x: x[0]):
+            lineas.append(f"{codigo};{nombre}")
+        lineas.append("")
+    ruta.write_text('\n'.join(lineas).strip() + '\n', encoding='utf-8')
+
+
+def _obtener_columnas_comparacion(ruta: Path = None) -> list:
+    if ruta is not None and Path(ruta).exists():
+        for enc in ('utf-8', 'latin-1', 'cp1252'):
+            try:
+                return list(pd.read_csv(ruta, sep=';', nrows=0, encoding=enc).columns)
+            except Exception:
+                continue
+    # Fallback minimo si no hay archivo de referencia
+    return [
+        'No.', 'Tipo ID', 'No ID', 'Primer Apellido', 'Segundo Apellido',
+        'Primer Nombre', 'Segundo Nombre', 'Departamento', 'Ciudad',
+        'Tipo de Cotizante', 'Subtipo de Cotizante', 'Horas Laboradas',
+        'Extranjero', 'Colombiano Temporalmente en el Exterior',
+        'Fecha Radicación en el Exterior', 'ING', 'Fecha ING', 'RET',
+        'Fecha RET', 'TDE', 'TAE', 'TDP', 'TAP', 'VSP', 'Fecha VSP', 'VST',
+        'SLN', 'Inicio SLN', 'Fin SLN', 'IGE', 'Inicio IGE', 'Fin IGE', 'LMA',
+        'Inicio LMA', 'Fin LMA', 'VAC-LR', 'Inicio VAC-LR', 'Fin VAC-LR', 'AVP',
+        'VCT', 'Inicio VCT', 'Fin VCT', 'IRL', 'Inicio IRL', 'Fin IRL',
+        'Correcciones', 'Salario Mensual($)', 'Salario Integral',
+        ' Salario Variable', 'Administradora', 'Días', 'IBC', 'Tarifa',
+        'Valor Cotización', 'Indicador Alto Riesgo',
+        'Cotización Voluntaria Afiliado', 'Cotización Voluntaria Empleador',
+        'Fondo Solidaridad Pensional', 'Fondo Subsistencia',
+        'Valor no Retenido', 'Total', 'AFP Destino', 'Administradora.1',
+        'Días.1', 'IBC.1', 'Tarifa.1', 'Valor Cotización.1', 'Valor UPC',
+        'N° Autorización Incapacidad EG', 'Valor Incapacidad EG',
+        'N° Autorización LMA', 'Valor Licencia Maternidad', 'EPS Destino',
+        'Administradora.2', 'Días.2', 'IBC.2', 'Tarifa.2', 'Clase',
+        'Centro de Trabajo', 'Actividad Económica', 'Valor Cotización.2',
+        'Días.3', 'Administradora CCF', 'IBC CCF', 'Tarifa CCF',
+        'Valor Cotización CCF', 'IBC Otros Parafiscales', 'Tarifa SENA',
+        'Valor Cotización SENA', 'Tarifa ICBF', 'Valor Cotización ICBF',
+        'Tarifa ESAP', 'Valor Cotización ESAP', 'Tarifa MEN',
+        'Valor Cotización MEN', 'Exonerado parafiscales y salud',
+    ]
+
+
+def _fmt_si_no(serie: pd.Series) -> pd.Series:
+    vals = serie.fillna('').astype(str).str.strip().str.upper()
+    return vals.apply(lambda v: 'SI' if v in {'X', 'SI', 'S', '1', 'TRUE'} else 'NO')
+
+
+def _fmt_pesos(serie: pd.Series) -> pd.Series:
+    def _f(v):
+        if pd.isna(v):
+            return ''
+        try:
+            n = int(v)
+        except Exception:
+            return ''
+        return f"${n:,.0f}"
+    return serie.apply(_f)
+
+
+def _fmt_pesos_k(serie: pd.Series) -> pd.Series:
+    def _f(v):
+        if pd.isna(v):
+            return ''
+        try:
+            n = int(v)
+        except Exception:
+            return ''
+        n = n / 1000.0
+        s = f"{n:,.2f}"
+        s = s.replace(",", "")
+        s = s.replace(".", ",")
+        return f"$ {s}"
+    return serie.apply(_f)
+
+
+def _fmt_pct(serie: pd.Series) -> pd.Series:
+    def _f(v):
+        if pd.isna(v):
+            return ''
+        try:
+            n = float(v)
+        except Exception:
+            return ''
+        return f"{n * 100:.2f}%"
+    return serie.apply(_f)
+
+
+def construir_df_formato_comparacion(
+    df_out: pd.DataFrame,
+    ruta_comparacion: Path = None,
+) -> pd.DataFrame:
+    """
+    Construye un DataFrame con el mismo formato/columnas de comparacion.csv.
+    """
+    if ruta_comparacion is None:
+        ruta_def = Path(__file__).parent / 'seguridad_archivos' / 'NOMINA REGULAR' / 'comparacion.csv'
+        if ruta_def.exists():
+            ruta_comparacion = ruta_def
+    df_out = _normalizar_columnas(df_out)
+    if 'cod_entidad' in df_out.columns:
+        df_out = df_out.rename(columns={'cod_entidad': 'actividad_economica'})
+
+    cols = _obtener_columnas_comparacion(ruta_comparacion)
+    df_cmp = pd.DataFrame(index=df_out.index)
+
+    # Identificacion
+    df_cmp['No.'] = df_out.get('no', '')
+    df_cmp['Tipo ID'] = df_out.get('tipo_id', '')
+    df_cmp['No ID'] = df_out.get('no_id', '')
+    df_cmp['Primer Apellido'] = df_out.get('primer_apellido', '')
+    df_cmp['Segundo Apellido'] = df_out.get('segundo_apellido', '')
+    df_cmp['Primer Nombre'] = df_out.get('primer_nombre', '')
+    df_cmp['Segundo Nombre'] = df_out.get('segundo_nombre', '')
+    df_cmp['Departamento'] = ''
+    df_cmp['Ciudad'] = ''
+    df_cmp['Tipo de Cotizante'] = df_out.get('tipo_cotizante', '')
+    df_cmp['Subtipo de Cotizante'] = df_out.get('subtipo_cotizante', '')
+    df_cmp['Horas Laboradas'] = df_out.get('horas_laboradas', '')
+    df_cmp['Extranjero'] = ''
+    df_cmp['Colombiano Temporalmente en el Exterior'] = ''
+    df_cmp['Fecha Radicación en el Exterior'] = ''
+
+    # Novedades
+    df_cmp['ING'] = _fmt_si_no(df_out.get('ing', pd.Series(index=df_out.index, data='')))
+    df_cmp['Fecha ING'] = df_out.get('fecha_ing', '')
+    df_cmp['RET'] = _fmt_si_no(df_out.get('ret', pd.Series(index=df_out.index, data='')))
+    df_cmp['Fecha RET'] = df_out.get('fecha_ret', '')
+    df_cmp['TDE'] = ''
+    df_cmp['TAE'] = ''
+    df_cmp['TDP'] = ''
+    df_cmp['TAP'] = ''
+    df_cmp['VSP'] = ''
+    df_cmp['Fecha VSP'] = ''
+    df_cmp['VST'] = _fmt_si_no(df_out.get('vst', pd.Series(index=df_out.index, data='')))
+    df_cmp['SLN'] = _fmt_si_no(df_out.get('sln', pd.Series(index=df_out.index, data='')))
+    df_cmp['Inicio SLN'] = df_out.get('inicio_sln', '')
+    df_cmp['Fin SLN'] = df_out.get('fin_sln', '')
+    df_cmp['IGE'] = _fmt_si_no(df_out.get('ige', pd.Series(index=df_out.index, data='')))
+    df_cmp['Inicio IGE'] = ''
+    df_cmp['Fin IGE'] = ''
+    df_cmp['LMA'] = _fmt_si_no(df_out.get('lma', pd.Series(index=df_out.index, data='')))
+    df_cmp['Inicio LMA'] = ''
+    df_cmp['Fin LMA'] = ''
+    df_cmp['VAC-LR'] = ''
+    df_cmp['Inicio VAC-LR'] = ''
+    df_cmp['Fin VAC-LR'] = ''
+    df_cmp['AVP'] = ''
+    df_cmp['VCT'] = ''
+    df_cmp['Inicio VCT'] = ''
+    df_cmp['Fin VCT'] = ''
+    df_cmp['IRL'] = ''
+    df_cmp['Inicio IRL'] = ''
+    df_cmp['Fin IRL'] = ''
+    df_cmp['Correcciones'] = ''
+
+    # Salarios
+    df_cmp['Salario Mensual($)'] = _fmt_pesos(df_out.get('ibc', pd.Series(index=df_out.index, data='')))
+    df_cmp['Salario Integral'] = 'NO'
+    df_cmp[' Salario Variable'] = 'NO'
+
+    # AFP
+    df_cmp['Administradora'] = df_out.get('admin_afp', '')
+    df_cmp['Días'] = df_out.get('dias_afp', '')
+    df_cmp['IBC'] = _fmt_pesos(df_out.get('ibc_afp', pd.Series(index=df_out.index, data='')))
+    df_cmp['Tarifa'] = _fmt_pct(df_out.get('tarifa_afp', pd.Series(index=df_out.index, data='')))
+    df_cmp['Valor Cotización'] = _fmt_pesos_k(df_out.get('valor_afp', pd.Series(index=df_out.index, data='')))
+    df_cmp['Indicador Alto Riesgo'] = ''
+    df_cmp['Cotización Voluntaria Afiliado'] = '0'
+    df_cmp['Cotización Voluntaria Empleador'] = '0'
+    df_cmp['Fondo Solidaridad Pensional'] = ''
+    df_cmp['Fondo Subsistencia'] = ''
+    df_cmp['Valor no Retenido'] = ''
+    df_cmp['Total'] = _fmt_pesos_k(df_out.get('valor_afp', pd.Series(index=df_out.index, data='')))
+    df_cmp['AFP Destino'] = 'NINGUNA'
+
+    # EPS
+    df_cmp['Administradora.1'] = df_out.get('admin_eps', '')
+    df_cmp['Días.1'] = df_out.get('dias_eps', '')
+    df_cmp['IBC.1'] = _fmt_pesos(df_out.get('ibc_eps', pd.Series(index=df_out.index, data='')))
+    df_cmp['Tarifa.1'] = _fmt_pct(df_out.get('tarifa_eps', pd.Series(index=df_out.index, data='')))
+    df_cmp['Valor Cotización.1'] = _fmt_pesos_k(df_out.get('valor_eps', pd.Series(index=df_out.index, data='')))
+    df_cmp['Valor UPC'] = ''
+    df_cmp['N° Autorización Incapacidad EG'] = ''
+    df_cmp['Valor Incapacidad EG'] = ''
+    df_cmp['N° Autorización LMA'] = ''
+    df_cmp['Valor Licencia Maternidad'] = ''
+    df_cmp['EPS Destino'] = 'NINGUNA'
+
+    # ARL
+    df_cmp['Administradora.2'] = df_out.get('admin_arl', '')
+    df_cmp['Días.2'] = df_out.get('dias_arl', '')
+    df_cmp['IBC.2'] = _fmt_pesos(df_out.get('ibc_arl', pd.Series(index=df_out.index, data='')))
+    df_cmp['Tarifa.2'] = _fmt_pct(df_out.get('tarifa_arl', pd.Series(index=df_out.index, data='')))
+    df_cmp['Clase'] = ''
+    df_cmp['Centro de Trabajo'] = ''
+    df_cmp['Actividad Económica'] = df_out.get('actividad_economica', '')
+    df_cmp['Valor Cotización.2'] = _fmt_pesos_k(df_out.get('valor_arl', pd.Series(index=df_out.index, data='')))
+
+    # CCF
+    df_cmp['Días.3'] = df_out.get('dias_ccf', '')
+    df_cmp['Administradora CCF'] = df_out.get('admin_ccf', '')
+    df_cmp['IBC CCF'] = _fmt_pesos(df_out.get('ibc_ccf', pd.Series(index=df_out.index, data='')))
+    df_cmp['Tarifa CCF'] = _fmt_pct(df_out.get('tarifa_ccf', pd.Series(index=df_out.index, data='')))
+    df_cmp['Valor Cotización CCF'] = _fmt_pesos_k(df_out.get('valor_ccf', pd.Series(index=df_out.index, data='')))
+    df_cmp['IBC Otros Parafiscales'] = ''
+    df_cmp['Tarifa SENA'] = '0.00%'
+    df_cmp['Valor Cotización SENA'] = '$'
+    df_cmp['Tarifa ICBF'] = '0.00%'
+    df_cmp['Valor Cotización ICBF'] = '$'
+    df_cmp['Tarifa ESAP'] = '0.00%'
+    df_cmp['Valor Cotización ESAP'] = '$'
+    df_cmp['Tarifa MEN'] = '0.00%'
+    df_cmp['Valor Cotización MEN'] = '$'
+    df_cmp['Exonerado parafiscales y salud'] = df_out.get('exonerado', '')
+
+    df_cmp = df_cmp.reindex(columns=cols)
+
+    return df_cmp.reindex(columns=cols)
+
+
+def exportar_csv_formato_comparacion(
+    df_out: pd.DataFrame,
+    ruta_salida,
+    ruta_comparacion: Path = None,
 ) -> Path:
     """
-    Compara la salida parseada con un archivo de referencia (pila_modificada.txt)
-    y genera un TXT con todas las diferencias.
+    Exporta un CSV con el mismo formato/columnas de comparacion.csv.
     """
-    ruta_referencia = Path(ruta_referencia)
-    if ruta_reporte is None:
-        ruta_reporte = ruta_referencia.with_suffix('.reporte.txt')
+    df_cmp = construir_df_formato_comparacion(df_out, ruta_comparacion)
+    ruta = Path(ruta_salida)
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    df_cmp.to_csv(ruta, index=False, encoding='utf-8-sig', sep=';')
+    return ruta
 
-    # Leer referencia
+
+def adaptar_admin_con_referencias(
+    df_out: pd.DataFrame,
+    ruta_referencia: Path = None,
+    ruta_comparacion: Path = None,
+) -> pd.DataFrame:
+    """
+    Aplica overrides de nombres de administradoras a partir de referencias.
+    """
+    if ruta_referencia is None:
+        ruta_def = Path(__file__).parent / 'seguridad_archivos' / 'NOMINA REGULAR' / 'pila_modificada.txt'
+        if ruta_def.exists():
+            ruta_referencia = ruta_def
+    if ruta_comparacion is None:
+        ruta_def = Path(__file__).parent / 'seguridad_archivos' / 'NOMINA REGULAR' / 'comparacion.csv'
+        if ruta_def.exists():
+            ruta_comparacion = ruta_def
+    if ruta_referencia is None and ruta_comparacion is None:
+        return df_out
+
+    df_out_norm = _normalizar_columnas(df_out)
+    if 'cod_entidad' in df_out_norm.columns:
+        df_out_norm = df_out_norm.rename(columns={'cod_entidad': 'actividad_economica'})
+
+    overrides = {'afp': {}, 'eps': {}, 'ccf': {}}
+    refs = []
+
+    if ruta_referencia is not None and Path(ruta_referencia).exists():
+        df_ref = _leer_referencia(Path(ruta_referencia))
+        refs.append(df_ref)
+        overrides_ref = _extraer_overrides_admin(df_out_norm, df_ref)
+        for k in overrides_ref:
+            overrides[k].update(overrides_ref.get(k, {}))
+
+    if ruta_comparacion is not None and Path(ruta_comparacion).exists():
+        df_comp = _leer_referencia(Path(ruta_comparacion))
+        refs.insert(0, df_comp)  # prioridad comparacion
+        overrides_comp = _extraer_overrides_admin(df_out_norm, df_comp)
+        for k in overrides_comp:
+            overrides[k].update(overrides_comp.get(k, {}))
+
+    # Inferir codigos faltantes desde referencias
+    if refs:
+        for df_ref in refs:
+            df_out_norm, _ = _inferir_codigos_por_nombre(
+                df_out_norm, df_ref, 'afp', 'cod_admin_afp', 'administradora'
+            )
+            df_out_norm, _ = _inferir_codigos_por_nombre(
+                df_out_norm, df_ref, 'eps', 'cod_eps', 'administradora_1'
+            )
+            df_out_norm, _ = _inferir_codigos_por_nombre(
+                df_out_norm, df_ref, 'ccf', 'cod_ccf', 'administradora_ccf'
+            )
+
+    # Actualizar nombres desde CODIGOS_ADMIN cuando falten
+    for code_col, name_col in [
+        ('cod_admin_afp', 'admin_afp'),
+        ('cod_eps', 'admin_eps'),
+        ('cod_ccf', 'admin_ccf'),
+    ]:
+        if code_col in df_out_norm.columns and name_col in df_out_norm.columns:
+            mask = df_out_norm[name_col].fillna('').astype(str).str.strip() == ''
+            df_out_norm.loc[mask, name_col] = df_out_norm.loc[mask, code_col].apply(_lookup)
+
+    # Aplicar overrides de nombres (referencias tienen prioridad)
+    if any(overrides.get(k) for k in overrides):
+        ruta_autogen = Path(__file__).with_name('codigos_admin_autogen.txt')
+        _escribir_codigos_autogen(overrides, ruta_autogen)
+        for mapa in overrides.values():
+            CODIGOS_ADMIN.update(mapa)
+        df_out_norm = _aplicar_overrides_admin(df_out_norm, overrides)
+
+    return df_out_norm
+
+
+def _leer_referencia(ruta: Path) -> pd.DataFrame:
+    sep = ';' if ruta.suffix.lower() == '.csv' else '\t'
     df_ref = None
     for enc in ('utf-8', 'latin-1', 'cp1252'):
         try:
-            df_ref = pd.read_csv(ruta_referencia, sep='\t', encoding=enc)
+            df_ref = pd.read_csv(ruta, sep=sep, encoding=enc)
             break
         except Exception:
             df_ref = None
     if df_ref is None:
-        raise ValueError(f"No se pudo leer referencia: {ruta_referencia}")
+        raise ValueError(f"No se pudo leer referencia: {ruta}")
+    return _normalizar_columnas(df_ref)
 
-    df_ref = _normalizar_columnas(df_ref)
-    df_out = _normalizar_columnas(df_out)
 
-    # ajustes de nombres especificos
-    if 'cod_entidad' in df_out.columns:
-        df_out = df_out.rename(columns={'cod_entidad': 'actividad_economica'})
-
+def _comparar_con_referencia(df_out: pd.DataFrame, df_ref: pd.DataFrame, etiqueta: str):
+    df_out = df_out.copy()
+    df_ref = df_ref.copy()
     # Clave de cruce por consecutivo
     df_ref['no_key'] = pd.to_numeric(df_ref.get('no'), errors='coerce')
     df_out['no_key'] = pd.to_numeric(df_out.get('no'), errors='coerce')
@@ -423,24 +932,6 @@ def generar_reporte_inconsistencias(
                 + "; ".join(fila_diffs)
             )
 
-    # Codigos sin nombre
-    codigos_sin_nombre = []
-    if 'cod_admin_afp' in df_out.columns and 'admin_afp' in df_out.columns:
-        mask = df_out['cod_admin_afp'].fillna('').astype(str).str.strip() != ''
-        mask = mask & (df_out['admin_afp'].fillna('').astype(str).str.strip() == '')
-        for cod in sorted(df_out.loc[mask, 'cod_admin_afp'].unique().tolist()):
-            codigos_sin_nombre.append(f"AFP;{cod}")
-    if 'cod_eps' in df_out.columns and 'admin_eps' in df_out.columns:
-        mask = df_out['cod_eps'].fillna('').astype(str).str.strip() != ''
-        mask = mask & (df_out['admin_eps'].fillna('').astype(str).str.strip() == '')
-        for cod in sorted(df_out.loc[mask, 'cod_eps'].unique().tolist()):
-            codigos_sin_nombre.append(f"EPS;{cod}")
-    if 'cod_ccf' in df_out.columns and 'admin_ccf' in df_out.columns:
-        mask = df_out['cod_ccf'].fillna('').astype(str).str.strip() != ''
-        mask = mask & (df_out['admin_ccf'].fillna('').astype(str).str.strip() == '')
-        for cod in sorted(df_out.loc[mask, 'cod_ccf'].unique().tolist()):
-            codigos_sin_nombre.append(f"CCF;{cod}")
-
     # Sugerencias de codigos admin desde referencia
     sugerencias = []
     for code_col, ref_col in [
@@ -460,10 +951,9 @@ def generar_reporte_inconsistencias(
             if nombre_actual != nombre_ref:
                 sugerencias.append(f"{codigo};{nombre_ref}")
 
-    # Escribir reporte
+    # Construir seccion
     lineas = []
-    lineas.append("REPORTE DE INCONSISTENCIAS - PILA")
-    lineas.append(f"Referencia: {ruta_referencia}")
+    lineas.append(f"=== REFERENCIA: {etiqueta} ===")
     lineas.append(f"Filas referencia: {len(df_ref):,}")
     lineas.append(f"Filas salida: {len(df_out):,}")
     lineas.append(f"Coincidencias por no: {len(comunes):,}")
@@ -477,11 +967,140 @@ def generar_reporte_inconsistencias(
     lineas.append("DETALLE DIFERENCIAS")
     lineas.extend(diffs if diffs else ["(sin diferencias en campos comparados)"])
     lineas.append("")
-    lineas.append("CODIGOS SIN NOMBRE")
-    lineas.extend(codigos_sin_nombre if codigos_sin_nombre else ["(sin codigos faltantes)"])
-    lineas.append("")
     lineas.append("SUGERENCIAS CODIGOS_ADMIN (REFERENCIA)")
     lineas.extend(sorted(set(sugerencias)) if sugerencias else ["(sin sugerencias)"])
+    lineas.append("")
+
+    return lineas, sugerencias
+
+
+def generar_reporte_inconsistencias(
+    df_out: pd.DataFrame,
+    ruta_referencia,
+    ruta_reporte: Path = None,
+    ruta_comparacion: Path = None,
+) -> Path:
+    """
+    Compara la salida parseada con referencias (pila_modificada.txt y/o comparacion.csv)
+    y genera un TXT con todas las diferencias.
+    """
+    ruta_referencia = Path(ruta_referencia)
+    if ruta_comparacion is None:
+        ruta_def = Path(__file__).parent / 'seguridad_archivos' / 'NOMINA REGULAR' / 'comparacion.csv'
+        if ruta_def.exists():
+            ruta_comparacion = ruta_def
+    if ruta_reporte is None:
+        ruta_reporte = ruta_referencia.with_suffix('.reporte.txt')
+
+    df_out = df_out.copy()
+    df_out = _normalizar_columnas(df_out)
+    if 'cod_entidad' in df_out.columns:
+        df_out = df_out.rename(columns={'cod_entidad': 'actividad_economica'})
+
+    df_ref = _leer_referencia(ruta_referencia)
+
+    # Overrides desde referencias (comparacion tiene prioridad)
+    overrides = _extraer_overrides_admin(df_out, df_ref)
+    if ruta_comparacion:
+        ruta_comparacion = Path(ruta_comparacion)
+        if ruta_comparacion.exists():
+            df_comp = _leer_referencia(ruta_comparacion)
+            overrides_comp = _extraer_overrides_admin(df_out, df_comp)
+            for k in overrides_comp:
+                overrides[k].update(overrides_comp.get(k, {}))
+
+    # Aplicar overrides para comparar con nombres "descifrados"
+    df_out_cmp = _aplicar_overrides_admin(df_out, overrides)
+
+    # Inferir codigos faltantes usando referencias
+    inferidos = []
+    df_out_cmp, inf = _inferir_codigos_por_nombre(
+        df_out_cmp, df_ref, 'afp', 'cod_admin_afp', 'administradora'
+    )
+    inferidos.extend(inf)
+    df_out_cmp, inf = _inferir_codigos_por_nombre(
+        df_out_cmp, df_ref, 'eps', 'cod_eps', 'administradora_1'
+    )
+    inferidos.extend(inf)
+    df_out_cmp, inf = _inferir_codigos_por_nombre(
+        df_out_cmp, df_ref, 'ccf', 'cod_ccf', 'administradora_ccf'
+    )
+    inferidos.extend(inf)
+
+    if ruta_comparacion and ruta_comparacion.exists():
+        df_comp = _leer_referencia(ruta_comparacion)
+        df_out_cmp, inf = _inferir_codigos_por_nombre(
+            df_out_cmp, df_comp, 'afp', 'cod_admin_afp', 'administradora'
+        )
+        inferidos.extend(inf)
+        df_out_cmp, inf = _inferir_codigos_por_nombre(
+            df_out_cmp, df_comp, 'eps', 'cod_eps', 'administradora_1'
+        )
+        inferidos.extend(inf)
+        df_out_cmp, inf = _inferir_codigos_por_nombre(
+            df_out_cmp, df_comp, 'ccf', 'cod_ccf', 'administradora_ccf'
+        )
+        inferidos.extend(inf)
+
+    # Guardar overrides autogenerados para uso futuro
+    ruta_autogen = Path(__file__).with_name('codigos_admin_autogen.txt')
+    _escribir_codigos_autogen(overrides, ruta_autogen)
+    for mapa in overrides.values():
+        CODIGOS_ADMIN.update(mapa)
+
+    # Codigos sin nombre (solo depende de salida)
+    codigos_sin_nombre = []
+    if 'cod_admin_afp' in df_out_cmp.columns and 'admin_afp' in df_out_cmp.columns:
+        mask = df_out_cmp['cod_admin_afp'].fillna('').astype(str).str.strip() != ''
+        mask = mask & (df_out_cmp['admin_afp'].fillna('').astype(str).str.strip() == '')
+        for cod in sorted(df_out_cmp.loc[mask, 'cod_admin_afp'].unique().tolist()):
+            codigos_sin_nombre.append(f"AFP;{cod}")
+    if 'cod_eps' in df_out_cmp.columns and 'admin_eps' in df_out_cmp.columns:
+        mask = df_out_cmp['cod_eps'].fillna('').astype(str).str.strip() != ''
+        mask = mask & (df_out_cmp['admin_eps'].fillna('').astype(str).str.strip() == '')
+        for cod in sorted(df_out_cmp.loc[mask, 'cod_eps'].unique().tolist()):
+            codigos_sin_nombre.append(f"EPS;{cod}")
+    if 'cod_ccf' in df_out_cmp.columns and 'admin_ccf' in df_out_cmp.columns:
+        mask = df_out_cmp['cod_ccf'].fillna('').astype(str).str.strip() != ''
+        mask = mask & (df_out_cmp['admin_ccf'].fillna('').astype(str).str.strip() == '')
+        for cod in sorted(df_out_cmp.loc[mask, 'cod_ccf'].unique().tolist()):
+            codigos_sin_nombre.append(f"CCF;{cod}")
+
+    lineas = []
+    lineas.append("REPORTE DE INCONSISTENCIAS - PILA")
+    lineas.append("")
+
+    seccion, sugerencias = _comparar_con_referencia(df_out_cmp, df_ref, str(ruta_referencia))
+    lineas.extend(seccion)
+
+    if ruta_comparacion and ruta_comparacion.exists():
+        df_comp = _leer_referencia(ruta_comparacion)
+        seccion_comp, _ = _comparar_con_referencia(df_out_cmp, df_comp, str(ruta_comparacion))
+        lineas.extend(seccion_comp)
+
+    lineas.append("OVERRIDES APLICADOS (AUTOGEN)")
+    if any(overrides.get(k) for k in overrides):
+        for key, titulo in [('afp', 'AFP'), ('eps', 'EPS'), ('ccf', 'CCF')]:
+            mapa = overrides.get(key, {})
+            if not mapa:
+                continue
+            lineas.append(f"[{titulo}]")
+            for codigo, nombre in sorted(mapa.items(), key=lambda x: x[0]):
+                lineas.append(f"{codigo};{nombre}")
+    else:
+        lineas.append("(sin overrides)")
+    lineas.append("")
+
+    lineas.append("CODIGOS INFERIDOS (INGENIERIA INVERSA)")
+    if inferidos:
+        for item in sorted(set(inferidos)):
+            lineas.append(item)
+    else:
+        lineas.append("(sin codigos inferidos)")
+    lineas.append("")
+
+    lineas.append("CODIGOS SIN NOMBRE")
+    lineas.extend(codigos_sin_nombre if codigos_sin_nombre else ["(sin codigos faltantes)"])
 
     ruta_reporte.parent.mkdir(parents=True, exist_ok=True)
     ruta_reporte.write_text('\n'.join(lineas), encoding='utf-8')
@@ -753,12 +1372,13 @@ if __name__ == '__main__':
     import sys
 
     if len(sys.argv) < 2:
-        print("Uso: python seguridad_social_parte1.py <archivo.TxT> [carpeta_salida] [referencia.txt]")
+        print("Uso: python seguridad_social_parte1.py <archivo.TxT> [carpeta_salida] [referencia.txt] [comparacion.csv]")
         sys.exit(1)
 
     archivo_entrada = Path(sys.argv[1])
     carpeta_salida  = Path(sys.argv[2]) if len(sys.argv) > 2 else archivo_entrada.parent
     ruta_referencia = Path(sys.argv[3]) if len(sys.argv) > 3 else None
+    ruta_comparacion = Path(sys.argv[4]) if len(sys.argv) > 4 else None
 
     print(f"Leyendo: {archivo_entrada}")
     with open(archivo_entrada, 'r', encoding='latin-1') as f:
@@ -766,13 +1386,31 @@ if __name__ == '__main__':
 
     df, empresa, totales = parse_pila_txt(contenido)
 
+    df = adaptar_admin_con_referencias(df, ruta_referencia, ruta_comparacion)
+
     nombre_csv = archivo_entrada.stem + '.csv'
     ruta_csv   = carpeta_salida / nombre_csv
     exportar_csv(df, ruta_csv)
 
-    if ruta_referencia and ruta_referencia.exists():
+    # Exportar CSV con formato comparacion
+    ruta_comp_eff = ruta_comparacion if ruta_comparacion and ruta_comparacion.exists() else None
+    if ruta_comp_eff is None:
+        ruta_def = Path(__file__).parent / 'seguridad_archivos' / 'NOMINA REGULAR' / 'comparacion.csv'
+        if ruta_def.exists():
+            ruta_comp_eff = ruta_def
+    ruta_csv_cmp = carpeta_salida / (archivo_entrada.stem + '_comparacion.csv')
+    exportar_csv_formato_comparacion(df, ruta_csv_cmp, ruta_comp_eff)
+    print(f"CSV comparacion generado: {ruta_csv_cmp}")
+
+    ruta_ref_eff = ruta_referencia if ruta_referencia and ruta_referencia.exists() else None
+    if ruta_ref_eff is None:
+        ruta_def = Path(__file__).parent / 'seguridad_archivos' / 'NOMINA REGULAR' / 'pila_modificada.txt'
+        if ruta_def.exists():
+            ruta_ref_eff = ruta_def
+
+    if ruta_ref_eff is not None:
         ruta_reporte = carpeta_salida / (archivo_entrada.stem + '_reporte.txt')
-        generar_reporte_inconsistencias(df, ruta_referencia, ruta_reporte)
+        generar_reporte_inconsistencias(df, ruta_ref_eff, ruta_reporte, ruta_comparacion)
         print(f"Reporte generado: {ruta_reporte}")
 
     resumen = resumen_planilla(df, empresa)
