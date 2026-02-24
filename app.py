@@ -19,10 +19,10 @@ from seguridad_social_parte1 import (
 )
 
 # ---------------------------------------------------------------------------
-# Configuración de página
+# Configuracion de pagina
 # ---------------------------------------------------------------------------
 st.set_page_config(
-    page_title="PILA – Seguridad Social",
+    page_title="PILA - Seguridad Social",
     page_icon="📋",
     layout="wide",
 )
@@ -34,17 +34,17 @@ st.markdown(
 )
 
 # ---------------------------------------------------------------------------
-# Carpeta de salida por defecto (relativa al script)
+# Carpeta de salida por defecto
 # ---------------------------------------------------------------------------
-BASE_DIR    = Path(__file__).parent
-SALIDA_DIR  = BASE_DIR / "Salida"
+BASE_DIR   = Path(__file__).parent
+SALIDA_DIR = BASE_DIR / "Salida"
 SALIDA_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# Sidebar – configuración
+# Sidebar
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.header("⚙️ Configuración")
+    st.header("⚙️ Configuracion")
     sep_csv = st.radio(
         "Separador CSV",
         options=[";", ",", "|"],
@@ -57,7 +57,7 @@ with st.sidebar:
         help=f"Guarda el archivo en:\n{SALIDA_DIR}",
     )
     st.markdown("---")
-    st.caption("seguridad_social_parte1.py v1.0")
+    st.caption("seguridad_social_parte1.py v2.0")
 
 # ---------------------------------------------------------------------------
 # Carga del archivo
@@ -87,55 +87,58 @@ resumen = resumen_planilla(df, info_empresa)
 st.success(f"Archivo procesado: **{archivo.name}**  |  {len(df):,} registros tipo 02")
 
 col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("Empleados únicos",   f"{resumen['empleados_unicos']:,}")
-col2.metric("Total IBC",          f"${resumen['total_ibc']:,.0f}")
-col3.metric("Total Pensión",      f"${resumen['total_pension']:,.0f}")
-col4.metric("Total EPS",          f"${resumen['total_eps']:,.0f}")
-col5.metric("Total ARL",          f"${resumen['total_arl']:,.0f}")
+col1.metric("Empleados unicos",  f"{resumen['empleados_unicos']:,}")
+col2.metric("Total IBC",         f"${resumen['total_ibc']:,.0f}")
+col3.metric("Total Pension",     f"${resumen['total_pension']:,.0f}")
+col4.metric("Total EPS",         f"${resumen['total_eps']:,.0f}")
+col5.metric("Total ARL",         f"${resumen['total_arl']:,.0f}")
 
-with st.expander("ℹ️ Información empresa / encabezado"):
+with st.expander("ℹ️ Informacion empresa / encabezado"):
     st.json(info_empresa)
 
 # ---------------------------------------------------------------------------
 # Filtros
 # ---------------------------------------------------------------------------
 st.subheader("🔍 Filtros")
-fcol1, fcol2, fcol3, fcol4 = st.columns(4)
+fcol1, fcol2, fcol3, fcol4, fcol5 = st.columns(5)
 
 with fcol1:
-    opciones_eps = sorted(df['cod_eps'].dropna().unique().tolist()) if 'cod_eps' in df.columns else []
-    filtro_eps = st.multiselect("EPS", opciones_eps, default=[])
+    ops_eps = sorted(df['Cod_EPS'].dropna().unique().tolist()) if 'Cod_EPS' in df.columns else []
+    filtro_eps = st.multiselect("EPS", ops_eps, default=[])
 
 with fcol2:
-    opciones_ccf = sorted(df['cod_ccf'].dropna().unique().tolist()) if 'cod_ccf' in df.columns else []
-    filtro_ccf = st.multiselect("CCF", opciones_ccf, default=[])
+    ops_ccf = sorted(df['Cod_CCF'].dropna().unique().tolist()) if 'Cod_CCF' in df.columns else []
+    filtro_ccf = st.multiselect("CCF", ops_ccf, default=[])
 
 with fcol3:
-    opciones_tipo_cot = sorted(df['tipo_cotizante'].dropna().unique().tolist()) if 'tipo_cotizante' in df.columns else []
-    filtro_tipo_cot = st.multiselect("Tipo cotizante", opciones_tipo_cot, default=[])
+    ops_afp = sorted(df['Admin_AFP'].dropna().unique().tolist()) if 'Admin_AFP' in df.columns else []
+    filtro_afp = st.multiselect("AFP", ops_afp, default=[])
 
 with fcol4:
-    buscar_nombre = st.text_input("Buscar nombre / documento", "")
+    ops_tipo = sorted(df['Tipo_Cotizante'].dropna().unique().tolist()) if 'Tipo_Cotizante' in df.columns else []
+    filtro_tipo = st.multiselect("Tipo cotizante", ops_tipo, default=[])
+
+with fcol5:
+    buscar = st.text_input("Buscar nombre / documento", "")
 
 # Aplicar filtros
 df_filtrado = df.copy()
 
 if filtro_eps:
-    df_filtrado = df_filtrado[df_filtrado['cod_eps'].isin(filtro_eps)]
-
+    df_filtrado = df_filtrado[df_filtrado['Cod_EPS'].isin(filtro_eps)]
 if filtro_ccf:
-    df_filtrado = df_filtrado[df_filtrado['cod_ccf'].isin(filtro_ccf)]
-
-if filtro_tipo_cot:
-    df_filtrado = df_filtrado[df_filtrado['tipo_cotizante'].isin(filtro_tipo_cot)]
-
-if buscar_nombre:
+    df_filtrado = df_filtrado[df_filtrado['Cod_CCF'].isin(filtro_ccf)]
+if filtro_afp:
+    df_filtrado = df_filtrado[df_filtrado['Admin_AFP'].isin(filtro_afp)]
+if filtro_tipo:
+    df_filtrado = df_filtrado[df_filtrado['Tipo_Cotizante'].isin(filtro_tipo)]
+if buscar:
     mask = (
-        df_filtrado.get('nombre_completo', pd.Series(dtype=str))
-        .str.contains(buscar_nombre.upper(), case=False, na=False)
+        df_filtrado.get('Nombre_Completo', pd.Series(dtype=str))
+        .str.contains(buscar.upper(), case=False, na=False)
         |
-        df_filtrado.get('num_doc', pd.Series(dtype=str))
-        .str.contains(buscar_nombre, case=False, na=False)
+        df_filtrado.get('No_ID', pd.Series(dtype=str))
+        .str.contains(buscar, case=False, na=False)
     )
     df_filtrado = df_filtrado[mask]
 
@@ -146,40 +149,31 @@ st.caption(f"Mostrando {len(df_filtrado):,} de {len(df):,} registros")
 # ---------------------------------------------------------------------------
 st.subheader("📊 Datos de empleados")
 
-# Columnas más relevantes para mostrar por defecto
-cols_mostrar_default = [
-    'secuencia', 'tipo_doc', 'num_doc', 'nombre_completo',
-    'tipo_cotizante', 'cod_municipio',
-    'cod_eps', 'cod_ccf',
-    'dias_eps', 'dias_pension',
-    'ibc', 'aporte_pension', 'aporte_eps', 'aporte_arl', 'aporte_ccf',
-    'ind_ingreso', 'ind_retiro', 'ind_licencia',
-    'fecha_inicio_novedad', 'fecha_fin_novedad',
+cols_default = [
+    'No', 'Tipo_ID', 'No_ID', 'Nombre_Completo',
+    'Tipo_Cotizante', 'Cod_Municipio',
+    'ING', 'Fecha_ING', 'RET', 'Fecha_RET', 'VST', 'SLN',
+    'Cod_Admin_AFP', 'Admin_AFP', 'Dias_AFP', 'IBC_AFP', 'Tarifa_AFP', 'Valor_AFP',
+    'Cod_EPS',       'Admin_EPS', 'Dias_EPS', 'IBC_EPS', 'Tarifa_EPS', 'Valor_EPS',
+    'Dias_ARL',                   'IBC_ARL',  'Tarifa_ARL', 'Valor_ARL',
+    'Cod_CCF',       'Admin_CCF', 'Dias_CCF', 'IBC_CCF', 'Tarifa_CCF', 'Valor_CCF',
+    'IBC', 'Horas_Laboradas', 'Exonerado',
 ]
-cols_disponibles = [c for c in cols_mostrar_default if c in df_filtrado.columns]
-cols_extra_disp  = [c for c in df_filtrado.columns if c not in cols_mostrar_default]
+cols_disp  = [c for c in cols_default if c in df_filtrado.columns]
+cols_extra = [c for c in df_filtrado.columns if c not in cols_default]
 
 with st.expander("Seleccionar columnas a mostrar", expanded=False):
-    todas_cols = cols_disponibles + cols_extra_disp
-    cols_sel = st.multiselect(
-        "Columnas",
-        todas_cols,
-        default=cols_disponibles,
-    )
+    todas_cols = cols_disp + cols_extra
+    cols_sel = st.multiselect("Columnas", todas_cols, default=cols_disp)
 
-if cols_sel:
-    df_mostrar = df_filtrado[cols_sel]
-else:
-    df_mostrar = df_filtrado[cols_disponibles]
-
+df_mostrar = df_filtrado[cols_sel] if cols_sel else df_filtrado[cols_disp]
 st.dataframe(df_mostrar, use_container_width=True, height=500)
 
 # ---------------------------------------------------------------------------
-# Descargar CSV
+# Exportar CSV
 # ---------------------------------------------------------------------------
 st.subheader("⬇️ Exportar")
 
-# Generar CSV en memoria
 csv_buffer = io.StringIO()
 df_filtrado.to_csv(csv_buffer, index=False, encoding='utf-8-sig', sep=sep_csv)
 csv_bytes = csv_buffer.getvalue().encode('utf-8-sig')
@@ -193,52 +187,58 @@ st.download_button(
     mime='text/csv',
 )
 
-# Guardar en disco si está marcado
 if guardar_en_disco:
     ruta_guardada = SALIDA_DIR / nombre_salida
     ruta_guardada.write_bytes(csv_bytes)
     st.success(f"CSV guardado en: `{ruta_guardada}`")
 
 # ---------------------------------------------------------------------------
-# Gráficas rápidas
+# Graficas rapidas
 # ---------------------------------------------------------------------------
-st.subheader("📈 Análisis rápido")
+st.subheader("📈 Analisis rapido")
 
-tab1, tab2, tab3 = st.tabs(["Por EPS", "Por CCF", "Días cotizados"])
+tab1, tab2, tab3, tab4 = st.tabs(["Por EPS", "Por AFP", "Por CCF", "Dias cotizados"])
 
 with tab1:
-    if 'cod_eps' in df_filtrado.columns and 'ibc' in df_filtrado.columns:
-        eps_group = (
-            df_filtrado.groupby('cod_eps', dropna=False)['ibc']
-            .sum()
-            .sort_values(ascending=False)
-            .reset_index()
+    if 'Cod_EPS' in df_filtrado.columns and 'IBC_EPS' in df_filtrado.columns:
+        grp = (
+            df_filtrado.groupby('Cod_EPS', dropna=False)['IBC_EPS']
+            .sum().sort_values(ascending=False).reset_index()
         )
-        eps_group.columns = ['EPS', 'IBC Total']
-        st.bar_chart(eps_group.set_index('EPS'))
+        grp.columns = ['EPS', 'IBC EPS Total']
+        st.bar_chart(grp.set_index('EPS'))
     else:
-        st.info("No hay datos de EPS disponibles.")
+        st.info("No hay datos de EPS.")
 
 with tab2:
-    if 'cod_ccf' in df_filtrado.columns and 'ibc' in df_filtrado.columns:
-        ccf_group = (
-            df_filtrado.groupby('cod_ccf', dropna=False)['ibc']
-            .sum()
-            .sort_values(ascending=False)
-            .reset_index()
+    if 'Admin_AFP' in df_filtrado.columns and 'Valor_AFP' in df_filtrado.columns:
+        grp = (
+            df_filtrado.groupby('Admin_AFP', dropna=False)['Valor_AFP']
+            .sum().sort_values(ascending=False).reset_index()
         )
-        ccf_group.columns = ['CCF', 'IBC Total']
-        st.bar_chart(ccf_group.set_index('CCF'))
+        grp.columns = ['AFP', 'Valor AFP Total']
+        st.bar_chart(grp.set_index('AFP'))
     else:
-        st.info("No hay datos de CCF disponibles.")
+        st.info("No hay datos de AFP.")
 
 with tab3:
-    if 'dias_eps' in df_filtrado.columns:
-        dias_dist = df_filtrado['dias_eps'].value_counts().sort_index().reset_index()
-        dias_dist.columns = ['Días cotizados', 'Cantidad']
-        st.bar_chart(dias_dist.set_index('Días cotizados'))
+    if 'Cod_CCF' in df_filtrado.columns and 'Valor_CCF' in df_filtrado.columns:
+        grp = (
+            df_filtrado.groupby('Cod_CCF', dropna=False)['Valor_CCF']
+            .sum().sort_values(ascending=False).reset_index()
+        )
+        grp.columns = ['CCF', 'Valor CCF Total']
+        st.bar_chart(grp.set_index('CCF'))
     else:
-        st.info("No hay datos de días disponibles.")
+        st.info("No hay datos de CCF.")
+
+with tab4:
+    if 'Dias_AFP' in df_filtrado.columns:
+        dist = df_filtrado['Dias_AFP'].value_counts().sort_index().reset_index()
+        dist.columns = ['Dias cotizados', 'Cantidad']
+        st.bar_chart(dist.set_index('Dias cotizados'))
+    else:
+        st.info("No hay datos de dias.")
 
 # ---------------------------------------------------------------------------
 # Totales del registro 06
