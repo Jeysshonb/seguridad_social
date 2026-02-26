@@ -219,7 +219,7 @@ def _pila_redondear(valor: float) -> int:
 # Utilidades de normalizacion
 # ---------------------------------------------------------------------------
 def _snake_case(nombre: str) -> str:
-    nombre = str(nombre).strip().lower()
+    nombre = _limpiar_nombre_columna(nombre).lower()
     nombre = unicodedata.normalize('NFKD', nombre)
     nombre = ''.join(c for c in nombre if not unicodedata.combining(c))
     nombre = re.sub(r'[^a-z0-9]+', '_', nombre)
@@ -265,6 +265,19 @@ def _insert_after(cols: list, after: str, nuevos: list) -> list:
         return cols[:idx + 1] + nuevos + cols[idx + 1:]
     except ValueError:
         return cols + nuevos
+
+
+def _limpiar_nombre_columna(nombre: str) -> str:
+    texto = str(nombre)
+    # Remueve BOM real y su artefacto comun mal decodificado.
+    texto = texto.replace('\ufeff', '').replace('ï»¿', '')
+    return texto
+
+
+def _limpiar_columnas_df(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.columns = [_limpiar_nombre_columna(c) for c in df.columns]
+    return df
 
 
 def _normalizar_texto(valor: str) -> str:
@@ -592,44 +605,75 @@ def _escribir_codigos_autogen(overrides: dict, ruta: Path) -> None:
     ruta.write_text('\n'.join(lineas).strip() + '\n', encoding='utf-8')
 
 
-def _obtener_columnas_comparacion(ruta: Path = None) -> list:
-    cols_raw = None
+def _columnas_comparacion_fallback_raw() -> list:
+    return [
+        'No.', 'Tipo ID', 'No ID', 'Primer Apellido', 'Segundo Apellido',
+        'Primer Nombre', 'Segundo Nombre', 'Departamento', 'Ciudad',
+        'Tipo de Cotizante', 'Subtipo de Cotizante', 'Horas Laboradas',
+        'Extranjero', 'Colombiano Temporalmente en el Exterior',
+        'Fecha Radicación en el Exterior', 'ING', 'Fecha ING', 'RET',
+        'Fecha RET', 'TDE', 'TAE', 'TDP', 'TAP', 'VSP', 'Fecha VSP', 'VST',
+        'SLN', 'Inicio SLN', 'Fin SLN', 'IGE', 'Inicio IGE', 'Fin IGE', 'LMA',
+        'Inicio LMA', 'Fin LMA', 'VAC-LR', 'Inicio VAC-LR', 'Fin VAC-LR', 'AVP',
+        'VCT', 'Inicio VCT', 'Fin VCT', 'IRL', 'Inicio IRL', 'Fin IRL',
+        'Correcciones', 'Salario Mensual($)', 'Salario Integral',
+        ' Salario Variable', 'Administradora', 'Días', 'IBC', 'Tarifa',
+        'Valor Cotización', 'Indicador Alto Riesgo',
+        'Cotización Voluntaria Afiliado', 'Cotización Voluntaria Empleador',
+        'Fondo Solidaridad Pensional', 'Fondo Subsistencia',
+        'Valor no Retenido', 'Total', 'AFP Destino', 'Administradora',
+        'Días', 'IBC', 'Tarifa', 'Valor Cotización', 'Valor UPC',
+        'N° Autorización Incapacidad EG', 'Valor Incapacidad EG',
+        'N° Autorización LMA', 'Valor Licencia Maternidad', 'EPS Destino',
+        'Administradora', 'Días', 'IBC', 'Tarifa', 'Clase',
+        'Centro de Trabajo', 'Actividad Económica', 'Valor Cotización',
+        'Días', 'Administradora CCF', 'IBC CCF', 'Tarifa CCF',
+        'Valor Cotización CCF', 'IBC Otros Parafiscales', 'Tarifa SENA',
+        'Valor Cotización SENA', 'Tarifa ICBF', 'Valor Cotización ICBF',
+        'Tarifa ESAP', 'Valor Cotización ESAP', 'Tarifa MEN',
+        'Valor Cotización MEN', 'Exonerado parafiscales y salud',
+    ]
+
+
+def _leer_csv_encodings(ruta: Path, sep=';', nrows=None) -> pd.DataFrame:
+    df = None
+    for enc in ('utf-8-sig', 'utf-8', 'cp1252', 'latin-1'):
+        try:
+            df = pd.read_csv(ruta, sep=sep, encoding=enc, nrows=nrows)
+            break
+        except Exception:
+            df = None
+    if df is None:
+        raise ValueError(f"No se pudo leer CSV: {ruta}")
+    return _limpiar_columnas_df(df)
+
+
+def _leer_header_csv_raw(ruta: Path) -> list:
+    for enc in ('utf-8-sig', 'utf-8', 'cp1252', 'latin-1'):
+        try:
+            contenido = Path(ruta).read_text(encoding=enc)
+            if not contenido:
+                continue
+            linea = contenido.splitlines()[0]
+            cols = [_limpiar_nombre_columna(c) for c in linea.split(';')]
+            if cols:
+                return cols
+        except Exception:
+            continue
+    raise ValueError(f"No se pudo leer encabezado CSV: {ruta}")
+
+
+def _obtener_columnas_comparacion_raw(ruta: Path = None) -> list:
     if ruta is not None and Path(ruta).exists():
-        for enc in ('utf-8', 'latin-1', 'cp1252'):
-            try:
-                cols_raw = list(pd.read_csv(ruta, sep=';', nrows=0, encoding=enc).columns)
-                break
-            except Exception:
-                cols_raw = None
-    if cols_raw is None:
-        # Fallback minimo si no hay archivo de referencia
-        cols_raw = [
-            'No.', 'Tipo ID', 'No ID', 'Primer Apellido', 'Segundo Apellido',
-            'Primer Nombre', 'Segundo Nombre', 'Departamento', 'Ciudad',
-            'Tipo de Cotizante', 'Subtipo de Cotizante', 'Horas Laboradas',
-            'Extranjero', 'Colombiano Temporalmente en el Exterior',
-            'Fecha Radicaci??n en el Exterior', 'ING', 'Fecha ING', 'RET',
-            'Fecha RET', 'TDE', 'TAE', 'TDP', 'TAP', 'VSP', 'Fecha VSP', 'VST',
-            'SLN', 'Inicio SLN', 'Fin SLN', 'IGE', 'Inicio IGE', 'Fin IGE', 'LMA',
-            'Inicio LMA', 'Fin LMA', 'VAC-LR', 'Inicio VAC-LR', 'Fin VAC-LR', 'AVP',
-            'VCT', 'Inicio VCT', 'Fin VCT', 'IRL', 'Inicio IRL', 'Fin IRL',
-            'Correcciones', 'Salario Mensual($)', 'Salario Integral',
-            ' Salario Variable', 'Administradora', 'D??as', 'IBC', 'Tarifa',
-            'Valor Cotizaci??n', 'Indicador Alto Riesgo',
-            'Cotizaci??n Voluntaria Afiliado', 'Cotizaci??n Voluntaria Empleador',
-            'Fondo Solidaridad Pensional', 'Fondo Subsistencia',
-            'Valor no Retenido', 'Total', 'AFP Destino', 'Administradora.1',
-            'D??as.1', 'IBC.1', 'Tarifa.1', 'Valor Cotizaci??n.1', 'Valor UPC',
-            'N?? Autorizaci??n Incapacidad EG', 'Valor Incapacidad EG',
-            'N?? Autorizaci??n LMA', 'Valor Licencia Maternidad', 'EPS Destino',
-            'Administradora.2', 'D??as.2', 'IBC.2', 'Tarifa.2', 'Clase',
-            'Centro de Trabajo', 'Actividad Econ??mica', 'Valor Cotizaci??n.2',
-            'D??as.3', 'Administradora CCF', 'IBC CCF', 'Tarifa CCF',
-            'Valor Cotizaci??n CCF', 'IBC Otros Parafiscales', 'Tarifa SENA',
-            'Valor Cotizaci??n SENA', 'Tarifa ICBF', 'Valor Cotizaci??n ICBF',
-            'Tarifa ESAP', 'Valor Cotizaci??n ESAP', 'Tarifa MEN',
-            'Valor Cotizaci??n MEN', 'Exonerado parafiscales y salud',
-        ]
+        try:
+            return _leer_header_csv_raw(Path(ruta))
+        except Exception:
+            pass
+    return _columnas_comparacion_fallback_raw()
+
+
+def _obtener_columnas_comparacion(ruta: Path = None) -> list:
+    cols_raw = _obtener_columnas_comparacion_raw(ruta)
     return _normalizar_lista_columnas(cols_raw)
 
 
@@ -678,14 +722,23 @@ def _fmt_pct(serie: pd.Series) -> pd.Series:
     return serie.apply(_f)
 
 
-def construir_df_formato_comparacion(
+def _aplicar_texto_excel(df: pd.DataFrame, columnas: list) -> pd.DataFrame:
+    if not columnas:
+        return df
+    df = df.copy()
+    for col in columnas:
+        if col not in df.columns:
+            continue
+        s = df[col].fillna('').astype(str)
+        df[col] = s.apply(lambda v: f"'{v}" if v != '' else '')
+    return df
+
+
+def _construir_df_comparacion_snake(
     df_out: pd.DataFrame,
     ruta_comparacion: Path = None,
+    incluir_codigos: bool = False,
 ) -> pd.DataFrame:
-    """
-    Construye un DataFrame con el mismo formato/columnas de comparacion.csv,
-    usando snake_case y completando faltantes desde la referencia cuando exista.
-    """
     if ruta_comparacion is None:
         ruta_def = Path(__file__).parent / 'seguridad_archivos' / 'NOMINA REGULAR' / 'comparacion.csv'
         if ruta_def.exists():
@@ -696,7 +749,8 @@ def construir_df_formato_comparacion(
         df_out = df_out.rename(columns={'cod_entidad': 'actividad_economica'})
 
     cols = _obtener_columnas_comparacion(ruta_comparacion)
-    cols = _insert_after(cols, 'no_id', ['tipo_cotizante', 'cod_municipio'])
+    if incluir_codigos:
+        cols = _insert_after(cols, 'no_id', ['tipo_cotizante', 'cod_municipio'])
 
     df_ref_aligned = None
     ruta_cmp_path = Path(ruta_comparacion) if ruta_comparacion is not None else None
@@ -716,6 +770,11 @@ def construir_df_formato_comparacion(
         if col in df_out.columns:
             return df_out[col]
         return pd.Series(index=df_out.index, data=default)
+
+    def _fmt_codigo(serie: pd.Series, width: int) -> pd.Series:
+        s = serie.fillna('').astype(str).str.strip()
+        s = s.apply(lambda v: v.zfill(width) if v.isdigit() else v)
+        return s
 
     def _set(col: str, serie: pd.Series, mask: pd.Series = None) -> None:
         if col not in df_cmp.columns:
@@ -738,18 +797,44 @@ def construir_df_formato_comparacion(
         mask = _mask_empty(df_cmp[col])
         df_cmp.loc[mask, col] = serie.loc[mask]
 
+    def _map_from_series(code_series: pd.Series, label_series: pd.Series) -> dict:
+        if label_series is None:
+            return {}
+        df_map = pd.DataFrame({'code': code_series, 'label': label_series})
+        df_map['code'] = df_map['code'].fillna('').astype(str).str.strip()
+        df_map['label'] = df_map['label'].fillna('').astype(str).str.strip()
+        df_map = df_map[(df_map['code'] != '') & (df_map['label'] != '')]
+        if df_map.empty:
+            return {}
+        return (
+            df_map.groupby('code')['label']
+            .agg(lambda x: x.value_counts().index[0])
+            .to_dict()
+        )
+
     # Identificacion
     _set('no', _serie('no', ''))
     _set('tipo_id', _serie('tipo_id', ''))
     _set('no_id', _serie('no_id', ''))
-    _set('tipo_cotizante', _serie('tipo_cotizante', ''))
-    _set('cod_municipio', _serie('cod_municipio', ''))
+    tipo_code = _fmt_codigo(_serie('tipo_cotizante', ''), 4)
+    sub_code = _fmt_codigo(_serie('subtipo_cotizante', ''), 2)
+    muni_code = _fmt_codigo(_serie('cod_municipio', ''), 5)
+    if incluir_codigos:
+        _set('tipo_cotizante', tipo_code)
+        _set('cod_municipio', muni_code)
     _set('primer_apellido', _serie('primer_apellido', ''))
     _set('segundo_apellido', _serie('segundo_apellido', ''))
     _set('primer_nombre', _serie('primer_nombre', ''))
     _set('segundo_nombre', _serie('segundo_nombre', ''))
-    _set('tipo_de_cotizante', _serie('tipo_cotizante', ''))
-    _set('subtipo_de_cotizante', _serie('subtipo_cotizante', ''))
+    label_tipo = None
+    label_sub = None
+    if df_ref_aligned is not None and not df_ref_aligned.empty:
+        label_tipo = df_ref_aligned.get('tipo_de_cotizante')
+        label_sub = df_ref_aligned.get('subtipo_de_cotizante')
+    map_tipo = _map_from_series(tipo_code, label_tipo)
+    map_sub = _map_from_series(sub_code, label_sub)
+    _fill('tipo_de_cotizante', tipo_code.map(map_tipo) if map_tipo else tipo_code)
+    _fill('subtipo_de_cotizante', sub_code.map(map_sub) if map_sub else sub_code)
     _set('horas_laboradas', _serie('horas_laboradas', ''))
 
     # Novedades
@@ -870,18 +955,62 @@ def construir_df_formato_comparacion(
     return df_cmp
 
 
+def construir_df_formato_comparacion(
+    df_out: pd.DataFrame,
+    ruta_comparacion: Path = None,
+    incluir_codigos: bool = False,
+    encabezado: str = 'oficial',
+    forzar_texto_excel_cols: list = None,
+) -> pd.DataFrame:
+    """
+    Construye DataFrame de comparacion en dos modos:
+      - oficial: encabezados exactos de comparacion.csv
+      - snake: encabezados snake_case (incluye codigos opcionalmente)
+    """
+    df_cmp_snake = _construir_df_comparacion_snake(
+        df_out,
+        ruta_comparacion=ruta_comparacion,
+        incluir_codigos=incluir_codigos,
+    )
+
+    if encabezado not in {'oficial', 'snake'}:
+        raise ValueError("encabezado debe ser 'oficial' o 'snake'")
+
+    if encabezado == 'snake':
+        df_final = df_cmp_snake.copy()
+    else:
+        cols_raw = _obtener_columnas_comparacion_raw(ruta_comparacion)
+        cols_snake = _normalizar_lista_columnas(cols_raw)
+        df_final = df_cmp_snake.reindex(columns=cols_snake).copy()
+        rename_map = {s: r for s, r in zip(cols_snake, cols_raw)}
+        df_final = df_final.rename(columns=rename_map)
+
+    df_final = _aplicar_texto_excel(df_final, forzar_texto_excel_cols or [])
+    return df_final.where(df_final.notna(), '')
+
+
 def exportar_csv_formato_comparacion(
     df_out: pd.DataFrame,
     ruta_salida,
     ruta_comparacion: Path = None,
+    incluir_codigos: bool = False,
+    encabezado: str = 'oficial',
+    forzar_texto_excel_cols: list = None,
+    encoding: str = 'utf-8-sig',
 ) -> Path:
     """
-    Exporta un CSV con el mismo formato/columnas de comparacion.csv.
+    Exporta CSV de comparacion en modo oficial o codigos.
     """
-    df_cmp = construir_df_formato_comparacion(df_out, ruta_comparacion)
+    df_cmp = construir_df_formato_comparacion(
+        df_out,
+        ruta_comparacion=ruta_comparacion,
+        incluir_codigos=incluir_codigos,
+        encabezado=encabezado,
+        forzar_texto_excel_cols=forzar_texto_excel_cols,
+    )
     ruta = Path(ruta_salida)
     ruta.parent.mkdir(parents=True, exist_ok=True)
-    df_cmp.to_csv(ruta, index=False, encoding='utf-8-sig', sep=';')
+    df_cmp.to_csv(ruta, index=False, encoding=encoding, sep=';')
     return ruta
 
 
@@ -961,15 +1090,19 @@ def adaptar_admin_con_referencias(
 
 def _leer_referencia(ruta: Path) -> pd.DataFrame:
     sep = ';' if ruta.suffix.lower() == '.csv' else '\t'
-    df_ref = None
-    for enc in ('utf-8', 'latin-1', 'cp1252'):
-        try:
-            df_ref = pd.read_csv(ruta, sep=sep, encoding=enc)
-            break
-        except Exception:
-            df_ref = None
-    if df_ref is None:
-        raise ValueError(f"No se pudo leer referencia: {ruta}")
+    if sep == ';':
+        df_ref = _leer_csv_encodings(ruta, sep=sep, nrows=None)
+    else:
+        df_ref = None
+        for enc in ('utf-8-sig', 'utf-8', 'cp1252', 'latin-1'):
+            try:
+                df_ref = pd.read_csv(ruta, sep=sep, encoding=enc)
+                break
+            except Exception:
+                df_ref = None
+        if df_ref is None:
+            raise ValueError(f"No se pudo leer referencia: {ruta}")
+        df_ref = _limpiar_columnas_df(df_ref)
     return _normalizar_columnas(df_ref)
 
 
@@ -1554,8 +1687,25 @@ if __name__ == '__main__':
         if ruta_def.exists():
             ruta_comp_eff = ruta_def
     ruta_csv_cmp = carpeta_salida / (archivo_entrada.stem + '_comparacion.csv')
-    exportar_csv_formato_comparacion(df, ruta_csv_cmp, ruta_comp_eff)
-    print(f"CSV comparacion generado: {ruta_csv_cmp}")
+    exportar_csv_formato_comparacion(
+        df,
+        ruta_csv_cmp,
+        ruta_comp_eff,
+        incluir_codigos=False,
+        encabezado='oficial',
+    )
+    print(f"CSV comparacion oficial generado: {ruta_csv_cmp}")
+
+    ruta_csv_cmp_cod = carpeta_salida / (archivo_entrada.stem + '_comparacion_codigos.csv')
+    exportar_csv_formato_comparacion(
+        df,
+        ruta_csv_cmp_cod,
+        ruta_comp_eff,
+        incluir_codigos=True,
+        encabezado='snake',
+        forzar_texto_excel_cols=['tipo_cotizante', 'cod_municipio'],
+    )
+    print(f"CSV comparacion codigos generado: {ruta_csv_cmp_cod}")
 
     ruta_ref_eff = ruta_referencia if ruta_referencia and ruta_referencia.exists() else None
     if ruta_ref_eff is None:

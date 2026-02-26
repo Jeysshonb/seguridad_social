@@ -312,17 +312,42 @@ ruta_comp_eff = ruta_comp
 if ruta_comp_eff is None and RUTA_COMP_DEFAULT.exists():
     ruta_comp_eff = RUTA_COMP_DEFAULT
 
-df_cmp = construir_df_formato_comparacion(df_filtrado, ruta_comp_eff)
-csv_cmp_buffer = io.StringIO()
-df_cmp.to_csv(csv_cmp_buffer, index=False, encoding='utf-8-sig', sep=';')
-csv_cmp_bytes = csv_cmp_buffer.getvalue().encode('utf-8-sig')
+df_cmp_oficial = construir_df_formato_comparacion(
+    df_filtrado,
+    ruta_comp_eff,
+    incluir_codigos=False,
+    encabezado='oficial',
+)
+csv_cmp_oficial_buffer = io.StringIO()
+df_cmp_oficial.to_csv(csv_cmp_oficial_buffer, index=False, encoding='utf-8-sig', sep=';')
+csv_cmp_oficial_bytes = csv_cmp_oficial_buffer.getvalue().encode('utf-8-sig')
 
 nombre_salida_cmp = Path(archivo.name).stem + '_comparacion.csv'
 
 st.download_button(
-    label="Descargar CSV formato oficial",
-    data=csv_cmp_bytes,
+    label="Descargar CSV comparacion oficial",
+    data=csv_cmp_oficial_bytes,
     file_name=nombre_salida_cmp,
+    mime='text/csv',
+)
+
+df_cmp_codigos = construir_df_formato_comparacion(
+    df_filtrado,
+    ruta_comp_eff,
+    incluir_codigos=True,
+    encabezado='snake',
+    forzar_texto_excel_cols=['tipo_cotizante', 'cod_municipio'],
+)
+csv_cmp_codigos_buffer = io.StringIO()
+df_cmp_codigos.to_csv(csv_cmp_codigos_buffer, index=False, encoding='utf-8-sig', sep=';')
+csv_cmp_codigos_bytes = csv_cmp_codigos_buffer.getvalue().encode('utf-8-sig')
+
+nombre_salida_cmp_codigos = Path(archivo.name).stem + '_comparacion_codigos.csv'
+
+st.download_button(
+    label="Descargar CSV comparacion codigos",
+    data=csv_cmp_codigos_bytes,
+    file_name=nombre_salida_cmp_codigos,
     mime='text/csv',
 )
 
@@ -344,7 +369,9 @@ if guardar_en_disco:
     ruta_guardada = SALIDA_DIR / nombre_salida
     ruta_guardada.write_bytes(csv_bytes)
     ruta_cmp_guardada = SALIDA_DIR / nombre_salida_cmp
-    ruta_cmp_guardada.write_bytes(csv_cmp_bytes)
+    ruta_cmp_guardada.write_bytes(csv_cmp_oficial_bytes)
+    ruta_cmp_cod_guardada = SALIDA_DIR / nombre_salida_cmp_codigos
+    ruta_cmp_cod_guardada.write_bytes(csv_cmp_codigos_bytes)
     if reporte_bytes is not None and ruta_reporte is not None:
         ruta_reporte.write_bytes(reporte_bytes)
     st.caption(f"Guardado en: {SALIDA_DIR}")
