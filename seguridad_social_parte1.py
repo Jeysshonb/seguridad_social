@@ -257,6 +257,16 @@ def _normalizar_lista_columnas(cols: list) -> list:
     return cols_out
 
 
+def _insert_after(cols: list, after: str, nuevos: list) -> list:
+    cols = list(cols)
+    nuevos = [c for c in nuevos if c not in cols]
+    try:
+        idx = cols.index(after)
+        return cols[:idx + 1] + nuevos + cols[idx + 1:]
+    except ValueError:
+        return cols + nuevos
+
+
 def _normalizar_texto(valor: str) -> str:
     if valor is None or (isinstance(valor, float) and math.isnan(valor)):
         return ''
@@ -686,6 +696,7 @@ def construir_df_formato_comparacion(
         df_out = df_out.rename(columns={'cod_entidad': 'actividad_economica'})
 
     cols = _obtener_columnas_comparacion(ruta_comparacion)
+    cols = _insert_after(cols, 'no_id', ['tipo_cotizante', 'cod_municipio'])
 
     df_ref_aligned = None
     ruta_cmp_path = Path(ruta_comparacion) if ruta_comparacion is not None else None
@@ -731,6 +742,8 @@ def construir_df_formato_comparacion(
     _set('no', _serie('no', ''))
     _set('tipo_id', _serie('tipo_id', ''))
     _set('no_id', _serie('no_id', ''))
+    _set('tipo_cotizante', _serie('tipo_cotizante', ''))
+    _set('cod_municipio', _serie('cod_municipio', ''))
     _set('primer_apellido', _serie('primer_apellido', ''))
     _set('segundo_apellido', _serie('segundo_apellido', ''))
     _set('primer_nombre', _serie('primer_nombre', ''))
