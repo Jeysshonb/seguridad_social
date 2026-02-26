@@ -180,7 +180,11 @@ CODIGOS_ADMIN = cargar_codigos_admin()
 
 def _lookup(codigo: str) -> str:
     """Busca el nombre de una administradora dado su codigo."""
-    codigo = codigo.strip().upper()
+    if codigo is None or (isinstance(codigo, float) and math.isnan(codigo)):
+        return ''
+    codigo = str(codigo).strip().upper()
+    if not codigo:
+        return ''
     if codigo in CODIGOS_ADMIN:
         return CODIGOS_ADMIN[codigo]
     # AFP: intentar con los ultimos 6 digitos del campo de 8 chars
@@ -239,6 +243,20 @@ def _normalizar_columnas(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _normalizar_lista_columnas(cols: list) -> list:
+    cols_out = []
+    vistos = {}
+    for c in cols:
+        base = _snake_case(c)
+        if base in vistos:
+            vistos[base] += 1
+            base = f"{base}_{vistos[base]}"
+        else:
+            vistos[base] = 0
+        cols_out.append(base)
+    return cols_out
+
+
 def _normalizar_texto(valor: str) -> str:
     if valor is None or (isinstance(valor, float) and math.isnan(valor)):
         return ''
@@ -258,6 +276,70 @@ def _normalizar_admin(valor: str) -> str:
     if tokens and tokens[0] in {'AFP', 'EPS', 'ARL'}:
         tokens = tokens[1:]
     return ' '.join(tokens)
+
+
+def _mask_empty(serie: pd.Series) -> pd.Series:
+    if not isinstance(serie, pd.Series):
+        serie = pd.Series(serie)
+    if serie.dtype == object:
+        return serie.fillna('').astype(str).str.strip() == ''
+    return serie.isna()
+
+
+def _mask_nonempty(serie: pd.Series) -> pd.Series:
+    return ~_mask_empty(serie)
+
+
+def _make_id_key(df: pd.DataFrame) -> pd.Series:
+    if 'tipo_id' not in df.columns or 'no_id' not in df.columns:
+        return pd.Series(index=df.index, data='')
+    tipo = df['tipo_id'].fillna('').astype(str).str.strip().str.upper()
+    no_id = df['no_id'].fillna('').astype(str).str.strip().str.upper()
+    no_id = no_id.str.replace(r'\s+', '', regex=True)
+    key = tipo + '|' + no_id
+    key[(tipo == '') | (no_id == '')] = ''
+    return key
+
+
+def _alinear_referencia(df_out: pd.DataFrame, df_ref: pd.DataFrame) -> pd.DataFrame:
+    if df_ref is None or df_ref.empty:
+        return pd.DataFrame(index=df_out.index)
+
+    ref_cols = list(df_ref.columns)
+
+    df_out_idx = df_out.reset_index(drop=False)
+    idx_col = df_out_idx.columns[0]
+    df_out_idx = df_out_idx.rename(columns={idx_col: '_row_id'})
+
+    df_ref_no = df_ref.copy()
+    df_ref_no['no_key'] = pd.to_numeric(df_ref_no.get('no'), errors='coerce')
+    df_ref_no = df_ref_no.dropna(subset=['no_key']).drop_duplicates(subset=['no_key'])
+
+    df_out_idx['no_key'] = pd.to_numeric(df_out_idx.get('no'), errors='coerce')
+    df_merge_no = df_out_idx[['_row_id', 'no_key']].merge(
+        df_ref_no[['no_key'] + ref_cols],
+        on='no_key',
+        how='left',
+    )
+
+    df_ref_id = df_ref.copy()
+    df_ref_id['key_id'] = _make_id_key(df_ref_id)
+    df_ref_id = df_ref_id[df_ref_id['key_id'] != ''].drop_duplicates(subset=['key_id'])
+
+    df_out_idx['key_id'] = _make_id_key(df_out_idx)
+    df_merge_id = df_out_idx[['_row_id', 'key_id']].merge(
+        df_ref_id[['key_id'] + ref_cols],
+        on='key_id',
+        how='left',
+    )
+
+    df_merge_no = df_merge_no.set_index('_row_id')
+    df_merge_id = df_merge_id.set_index('_row_id')
+
+    df_ref_aligned = df_merge_no[ref_cols].combine_first(df_merge_id[ref_cols])
+    df_ref_aligned = df_ref_aligned.reindex(df_out_idx['_row_id'])
+    df_ref_aligned.index = df_out.index
+    return df_ref_aligned
 
 
 def _parse_money(valor):
@@ -391,11 +473,11 @@ def _inferir_codigos_por_nombre(
     df_need = df_ref_c[['no_key', ref_name_col]].copy()
     df_need['name_norm'] = df_need[ref_name_col].map(_normalizar_admin)
     df_need['code_inf'] = df_need['name_norm'].map(map_total)
-
-    df_out_c['code_norm'] = df_out_c[code_col].astype(str).str.strip().str.upper()
-    need_mask = ~df_out_c['code_norm'].map(lambda c: _codigo_valido(c, tipo))
+    df_need = df_need.drop_duplicates(subset=['no_key'])
 
     df_out_c = df_out_c.merge(df_need[['no_key', 'code_inf']], on='no_key', how='left')
+    df_out_c['code_norm'] = df_out_c[code_col].astype(str).str.strip().str.upper()
+    need_mask = ~df_out_c['code_norm'].map(lambda c: _codigo_valido(c, tipo))
     df_out_c.loc[need_mask, code_col] = df_out_c.loc[need_mask, 'code_inf']
     df_out_c = df_out_c.drop(columns=['code_norm', 'code_inf'])
 
@@ -501,40 +583,44 @@ def _escribir_codigos_autogen(overrides: dict, ruta: Path) -> None:
 
 
 def _obtener_columnas_comparacion(ruta: Path = None) -> list:
+    cols_raw = None
     if ruta is not None and Path(ruta).exists():
         for enc in ('utf-8', 'latin-1', 'cp1252'):
             try:
-                return list(pd.read_csv(ruta, sep=';', nrows=0, encoding=enc).columns)
+                cols_raw = list(pd.read_csv(ruta, sep=';', nrows=0, encoding=enc).columns)
+                break
             except Exception:
-                continue
-    # Fallback minimo si no hay archivo de referencia
-    return [
-        'No.', 'Tipo ID', 'No ID', 'Primer Apellido', 'Segundo Apellido',
-        'Primer Nombre', 'Segundo Nombre', 'Departamento', 'Ciudad',
-        'Tipo de Cotizante', 'Subtipo de Cotizante', 'Horas Laboradas',
-        'Extranjero', 'Colombiano Temporalmente en el Exterior',
-        'Fecha Radicación en el Exterior', 'ING', 'Fecha ING', 'RET',
-        'Fecha RET', 'TDE', 'TAE', 'TDP', 'TAP', 'VSP', 'Fecha VSP', 'VST',
-        'SLN', 'Inicio SLN', 'Fin SLN', 'IGE', 'Inicio IGE', 'Fin IGE', 'LMA',
-        'Inicio LMA', 'Fin LMA', 'VAC-LR', 'Inicio VAC-LR', 'Fin VAC-LR', 'AVP',
-        'VCT', 'Inicio VCT', 'Fin VCT', 'IRL', 'Inicio IRL', 'Fin IRL',
-        'Correcciones', 'Salario Mensual($)', 'Salario Integral',
-        ' Salario Variable', 'Administradora', 'Días', 'IBC', 'Tarifa',
-        'Valor Cotización', 'Indicador Alto Riesgo',
-        'Cotización Voluntaria Afiliado', 'Cotización Voluntaria Empleador',
-        'Fondo Solidaridad Pensional', 'Fondo Subsistencia',
-        'Valor no Retenido', 'Total', 'AFP Destino', 'Administradora.1',
-        'Días.1', 'IBC.1', 'Tarifa.1', 'Valor Cotización.1', 'Valor UPC',
-        'N° Autorización Incapacidad EG', 'Valor Incapacidad EG',
-        'N° Autorización LMA', 'Valor Licencia Maternidad', 'EPS Destino',
-        'Administradora.2', 'Días.2', 'IBC.2', 'Tarifa.2', 'Clase',
-        'Centro de Trabajo', 'Actividad Económica', 'Valor Cotización.2',
-        'Días.3', 'Administradora CCF', 'IBC CCF', 'Tarifa CCF',
-        'Valor Cotización CCF', 'IBC Otros Parafiscales', 'Tarifa SENA',
-        'Valor Cotización SENA', 'Tarifa ICBF', 'Valor Cotización ICBF',
-        'Tarifa ESAP', 'Valor Cotización ESAP', 'Tarifa MEN',
-        'Valor Cotización MEN', 'Exonerado parafiscales y salud',
-    ]
+                cols_raw = None
+    if cols_raw is None:
+        # Fallback minimo si no hay archivo de referencia
+        cols_raw = [
+            'No.', 'Tipo ID', 'No ID', 'Primer Apellido', 'Segundo Apellido',
+            'Primer Nombre', 'Segundo Nombre', 'Departamento', 'Ciudad',
+            'Tipo de Cotizante', 'Subtipo de Cotizante', 'Horas Laboradas',
+            'Extranjero', 'Colombiano Temporalmente en el Exterior',
+            'Fecha Radicaci??n en el Exterior', 'ING', 'Fecha ING', 'RET',
+            'Fecha RET', 'TDE', 'TAE', 'TDP', 'TAP', 'VSP', 'Fecha VSP', 'VST',
+            'SLN', 'Inicio SLN', 'Fin SLN', 'IGE', 'Inicio IGE', 'Fin IGE', 'LMA',
+            'Inicio LMA', 'Fin LMA', 'VAC-LR', 'Inicio VAC-LR', 'Fin VAC-LR', 'AVP',
+            'VCT', 'Inicio VCT', 'Fin VCT', 'IRL', 'Inicio IRL', 'Fin IRL',
+            'Correcciones', 'Salario Mensual($)', 'Salario Integral',
+            ' Salario Variable', 'Administradora', 'D??as', 'IBC', 'Tarifa',
+            'Valor Cotizaci??n', 'Indicador Alto Riesgo',
+            'Cotizaci??n Voluntaria Afiliado', 'Cotizaci??n Voluntaria Empleador',
+            'Fondo Solidaridad Pensional', 'Fondo Subsistencia',
+            'Valor no Retenido', 'Total', 'AFP Destino', 'Administradora.1',
+            'D??as.1', 'IBC.1', 'Tarifa.1', 'Valor Cotizaci??n.1', 'Valor UPC',
+            'N?? Autorizaci??n Incapacidad EG', 'Valor Incapacidad EG',
+            'N?? Autorizaci??n LMA', 'Valor Licencia Maternidad', 'EPS Destino',
+            'Administradora.2', 'D??as.2', 'IBC.2', 'Tarifa.2', 'Clase',
+            'Centro de Trabajo', 'Actividad Econ??mica', 'Valor Cotizaci??n.2',
+            'D??as.3', 'Administradora CCF', 'IBC CCF', 'Tarifa CCF',
+            'Valor Cotizaci??n CCF', 'IBC Otros Parafiscales', 'Tarifa SENA',
+            'Valor Cotizaci??n SENA', 'Tarifa ICBF', 'Valor Cotizaci??n ICBF',
+            'Tarifa ESAP', 'Valor Cotizaci??n ESAP', 'Tarifa MEN',
+            'Valor Cotizaci??n MEN', 'Exonerado parafiscales y salud',
+        ]
+    return _normalizar_lista_columnas(cols_raw)
 
 
 def _fmt_si_no(serie: pd.Series) -> pd.Series:
@@ -587,132 +673,188 @@ def construir_df_formato_comparacion(
     ruta_comparacion: Path = None,
 ) -> pd.DataFrame:
     """
-    Construye un DataFrame con el mismo formato/columnas de comparacion.csv.
+    Construye un DataFrame con el mismo formato/columnas de comparacion.csv,
+    usando snake_case y completando faltantes desde la referencia cuando exista.
     """
     if ruta_comparacion is None:
         ruta_def = Path(__file__).parent / 'seguridad_archivos' / 'NOMINA REGULAR' / 'comparacion.csv'
         if ruta_def.exists():
             ruta_comparacion = ruta_def
+
     df_out = _normalizar_columnas(df_out)
     if 'cod_entidad' in df_out.columns:
         df_out = df_out.rename(columns={'cod_entidad': 'actividad_economica'})
 
     cols = _obtener_columnas_comparacion(ruta_comparacion)
-    df_cmp = pd.DataFrame(index=df_out.index)
 
-    # Identificacion
-    df_cmp['No.'] = df_out.get('no', '')
-    df_cmp['Tipo ID'] = df_out.get('tipo_id', '')
-    df_cmp['No ID'] = df_out.get('no_id', '')
-    df_cmp['Primer Apellido'] = df_out.get('primer_apellido', '')
-    df_cmp['Segundo Apellido'] = df_out.get('segundo_apellido', '')
-    df_cmp['Primer Nombre'] = df_out.get('primer_nombre', '')
-    df_cmp['Segundo Nombre'] = df_out.get('segundo_nombre', '')
-    df_cmp['Departamento'] = ''
-    df_cmp['Ciudad'] = ''
-    df_cmp['Tipo de Cotizante'] = df_out.get('tipo_cotizante', '')
-    df_cmp['Subtipo de Cotizante'] = df_out.get('subtipo_cotizante', '')
-    df_cmp['Horas Laboradas'] = df_out.get('horas_laboradas', '')
-    df_cmp['Extranjero'] = ''
-    df_cmp['Colombiano Temporalmente en el Exterior'] = ''
-    df_cmp['Fecha Radicación en el Exterior'] = ''
+    df_ref_aligned = None
+    ruta_cmp_path = Path(ruta_comparacion) if ruta_comparacion is not None else None
+    if ruta_cmp_path is not None and ruta_cmp_path.exists():
+        df_ref = _leer_referencia(ruta_cmp_path)
+        df_ref_aligned = _alinear_referencia(df_out, df_ref)
 
-    # Novedades
-    df_cmp['ING'] = _fmt_si_no(df_out.get('ing', pd.Series(index=df_out.index, data='')))
-    df_cmp['Fecha ING'] = df_out.get('fecha_ing', '')
-    df_cmp['RET'] = _fmt_si_no(df_out.get('ret', pd.Series(index=df_out.index, data='')))
-    df_cmp['Fecha RET'] = df_out.get('fecha_ret', '')
-    df_cmp['TDE'] = ''
-    df_cmp['TAE'] = ''
-    df_cmp['TDP'] = ''
-    df_cmp['TAP'] = ''
-    df_cmp['VSP'] = ''
-    df_cmp['Fecha VSP'] = ''
-    df_cmp['VST'] = _fmt_si_no(df_out.get('vst', pd.Series(index=df_out.index, data='')))
-    df_cmp['SLN'] = _fmt_si_no(df_out.get('sln', pd.Series(index=df_out.index, data='')))
-    df_cmp['Inicio SLN'] = df_out.get('inicio_sln', '')
-    df_cmp['Fin SLN'] = df_out.get('fin_sln', '')
-    df_cmp['IGE'] = _fmt_si_no(df_out.get('ige', pd.Series(index=df_out.index, data='')))
-    df_cmp['Inicio IGE'] = ''
-    df_cmp['Fin IGE'] = ''
-    df_cmp['LMA'] = _fmt_si_no(df_out.get('lma', pd.Series(index=df_out.index, data='')))
-    df_cmp['Inicio LMA'] = ''
-    df_cmp['Fin LMA'] = ''
-    df_cmp['VAC-LR'] = ''
-    df_cmp['Inicio VAC-LR'] = ''
-    df_cmp['Fin VAC-LR'] = ''
-    df_cmp['AVP'] = ''
-    df_cmp['VCT'] = ''
-    df_cmp['Inicio VCT'] = ''
-    df_cmp['Fin VCT'] = ''
-    df_cmp['IRL'] = ''
-    df_cmp['Inicio IRL'] = ''
-    df_cmp['Fin IRL'] = ''
-    df_cmp['Correcciones'] = ''
-
-    # Salarios
-    df_cmp['Salario Mensual($)'] = _fmt_pesos(df_out.get('ibc', pd.Series(index=df_out.index, data='')))
-    df_cmp['Salario Integral'] = 'NO'
-    df_cmp[' Salario Variable'] = 'NO'
-
-    # AFP
-    df_cmp['Administradora'] = df_out.get('admin_afp', '')
-    df_cmp['Días'] = df_out.get('dias_afp', '')
-    df_cmp['IBC'] = _fmt_pesos(df_out.get('ibc_afp', pd.Series(index=df_out.index, data='')))
-    df_cmp['Tarifa'] = _fmt_pct(df_out.get('tarifa_afp', pd.Series(index=df_out.index, data='')))
-    df_cmp['Valor Cotización'] = _fmt_pesos_k(df_out.get('valor_afp', pd.Series(index=df_out.index, data='')))
-    df_cmp['Indicador Alto Riesgo'] = ''
-    df_cmp['Cotización Voluntaria Afiliado'] = '0'
-    df_cmp['Cotización Voluntaria Empleador'] = '0'
-    df_cmp['Fondo Solidaridad Pensional'] = ''
-    df_cmp['Fondo Subsistencia'] = ''
-    df_cmp['Valor no Retenido'] = ''
-    df_cmp['Total'] = _fmt_pesos_k(df_out.get('valor_afp', pd.Series(index=df_out.index, data='')))
-    df_cmp['AFP Destino'] = 'NINGUNA'
-
-    # EPS
-    df_cmp['Administradora.1'] = df_out.get('admin_eps', '')
-    df_cmp['Días.1'] = df_out.get('dias_eps', '')
-    df_cmp['IBC.1'] = _fmt_pesos(df_out.get('ibc_eps', pd.Series(index=df_out.index, data='')))
-    df_cmp['Tarifa.1'] = _fmt_pct(df_out.get('tarifa_eps', pd.Series(index=df_out.index, data='')))
-    df_cmp['Valor Cotización.1'] = _fmt_pesos_k(df_out.get('valor_eps', pd.Series(index=df_out.index, data='')))
-    df_cmp['Valor UPC'] = ''
-    df_cmp['N° Autorización Incapacidad EG'] = ''
-    df_cmp['Valor Incapacidad EG'] = ''
-    df_cmp['N° Autorización LMA'] = ''
-    df_cmp['Valor Licencia Maternidad'] = ''
-    df_cmp['EPS Destino'] = 'NINGUNA'
-
-    # ARL
-    df_cmp['Administradora.2'] = df_out.get('admin_arl', '')
-    df_cmp['Días.2'] = df_out.get('dias_arl', '')
-    df_cmp['IBC.2'] = _fmt_pesos(df_out.get('ibc_arl', pd.Series(index=df_out.index, data='')))
-    df_cmp['Tarifa.2'] = _fmt_pct(df_out.get('tarifa_arl', pd.Series(index=df_out.index, data='')))
-    df_cmp['Clase'] = ''
-    df_cmp['Centro de Trabajo'] = ''
-    df_cmp['Actividad Económica'] = df_out.get('actividad_economica', '')
-    df_cmp['Valor Cotización.2'] = _fmt_pesos_k(df_out.get('valor_arl', pd.Series(index=df_out.index, data='')))
-
-    # CCF
-    df_cmp['Días.3'] = df_out.get('dias_ccf', '')
-    df_cmp['Administradora CCF'] = df_out.get('admin_ccf', '')
-    df_cmp['IBC CCF'] = _fmt_pesos(df_out.get('ibc_ccf', pd.Series(index=df_out.index, data='')))
-    df_cmp['Tarifa CCF'] = _fmt_pct(df_out.get('tarifa_ccf', pd.Series(index=df_out.index, data='')))
-    df_cmp['Valor Cotización CCF'] = _fmt_pesos_k(df_out.get('valor_ccf', pd.Series(index=df_out.index, data='')))
-    df_cmp['IBC Otros Parafiscales'] = ''
-    df_cmp['Tarifa SENA'] = '0.00%'
-    df_cmp['Valor Cotización SENA'] = '$'
-    df_cmp['Tarifa ICBF'] = '0.00%'
-    df_cmp['Valor Cotización ICBF'] = '$'
-    df_cmp['Tarifa ESAP'] = '0.00%'
-    df_cmp['Valor Cotización ESAP'] = '$'
-    df_cmp['Tarifa MEN'] = '0.00%'
-    df_cmp['Valor Cotización MEN'] = '$'
-    df_cmp['Exonerado parafiscales y salud'] = df_out.get('exonerado', '')
+    if df_ref_aligned is not None and not df_ref_aligned.empty:
+        df_cmp = df_ref_aligned.copy()
+    else:
+        df_cmp = pd.DataFrame(index=df_out.index)
 
     df_cmp = df_cmp.reindex(columns=cols)
+    df_cmp = df_cmp.astype('object')
 
-    return df_cmp.reindex(columns=cols)
+    def _serie(col: str, default='') -> pd.Series:
+        if col in df_out.columns:
+            return df_out[col]
+        return pd.Series(index=df_out.index, data=default)
+
+    def _set(col: str, serie: pd.Series, mask: pd.Series = None) -> None:
+        if col not in df_cmp.columns:
+            df_cmp[col] = ''
+        serie = serie.reindex(df_cmp.index)
+        if df_ref_aligned is None or df_ref_aligned.empty:
+            df_cmp[col] = serie
+            return
+        if mask is None:
+            mask = _mask_nonempty(serie)
+        else:
+            mask = mask.reindex(df_cmp.index).fillna(False)
+        df_cmp.loc[mask, col] = serie.loc[mask]
+
+    def _fill(col: str, value) -> None:
+        if col not in df_cmp.columns:
+            df_cmp[col] = ''
+        serie = value if isinstance(value, pd.Series) else pd.Series(index=df_cmp.index, data=value)
+        serie = serie.reindex(df_cmp.index)
+        mask = _mask_empty(df_cmp[col])
+        df_cmp.loc[mask, col] = serie.loc[mask]
+
+    # Identificacion
+    _set('no', _serie('no', ''))
+    _set('tipo_id', _serie('tipo_id', ''))
+    _set('no_id', _serie('no_id', ''))
+    _set('primer_apellido', _serie('primer_apellido', ''))
+    _set('segundo_apellido', _serie('segundo_apellido', ''))
+    _set('primer_nombre', _serie('primer_nombre', ''))
+    _set('segundo_nombre', _serie('segundo_nombre', ''))
+    _set('tipo_de_cotizante', _serie('tipo_cotizante', ''))
+    _set('subtipo_de_cotizante', _serie('subtipo_cotizante', ''))
+    _set('horas_laboradas', _serie('horas_laboradas', ''))
+
+    # Novedades
+    raw_ing = _serie('ing', '')
+    _set('ing', _fmt_si_no(raw_ing), mask=_mask_nonempty(raw_ing))
+    _set('fecha_ing', _serie('fecha_ing', ''))
+
+    raw_ret = _serie('ret', '')
+    _set('ret', _fmt_si_no(raw_ret), mask=_mask_nonempty(raw_ret))
+    _set('fecha_ret', _serie('fecha_ret', ''))
+
+    raw_vst = _serie('vst', '')
+    _set('vst', _fmt_si_no(raw_vst), mask=_mask_nonempty(raw_vst))
+
+    raw_sln = _serie('sln', '')
+    _set('sln', _fmt_si_no(raw_sln), mask=_mask_nonempty(raw_sln))
+    _set('inicio_sln', _serie('inicio_sln', ''))
+    _set('fin_sln', _serie('fin_sln', ''))
+
+    raw_ige = _serie('ige', '')
+    _set('ige', _fmt_si_no(raw_ige), mask=_mask_nonempty(raw_ige))
+
+    raw_lma = _serie('lma', '')
+    _set('lma', _fmt_si_no(raw_lma), mask=_mask_nonempty(raw_lma))
+
+    # Salarios
+    _set('salario_mensual', _fmt_pesos(_serie('ibc', pd.Series(index=df_out.index, data=''))))
+    _fill('salario_integral', 'NO')
+    _fill('salario_variable', 'NO')
+
+    # AFP
+    _set('administradora', _serie('admin_afp', ''))
+    _set('dias', _serie('dias_afp', ''))
+    _set('ibc', _fmt_pesos(_serie('ibc_afp', pd.Series(index=df_out.index, data=''))))
+    _set('tarifa', _fmt_pct(_serie('tarifa_afp', pd.Series(index=df_out.index, data=''))))
+    _set('valor_cotizacion', _fmt_pesos_k(_serie('valor_afp', pd.Series(index=df_out.index, data=''))))
+    _set('total', _fmt_pesos_k(_serie('valor_afp', pd.Series(index=df_out.index, data=''))))
+    _fill('cotizacion_voluntaria_afiliado', '0')
+    _fill('cotizacion_voluntaria_empleador', '0')
+    _fill('afp_destino', 'NINGUNA')
+
+    # EPS
+    _set('administradora_1', _serie('admin_eps', ''))
+    _set('dias_1', _serie('dias_eps', ''))
+    _set('ibc_1', _fmt_pesos(_serie('ibc_eps', pd.Series(index=df_out.index, data=''))))
+    _set('tarifa_1', _fmt_pct(_serie('tarifa_eps', pd.Series(index=df_out.index, data=''))))
+    _set('valor_cotizacion_1', _fmt_pesos_k(_serie('valor_eps', pd.Series(index=df_out.index, data=''))))
+    _fill('eps_destino', 'NINGUNA')
+
+    # ARL
+    _set('administradora_2', _serie('admin_arl', ''))
+    _set('dias_2', _serie('dias_arl', ''))
+    _set('ibc_2', _fmt_pesos(_serie('ibc_arl', pd.Series(index=df_out.index, data=''))))
+    _set('tarifa_2', _fmt_pct(_serie('tarifa_arl', pd.Series(index=df_out.index, data=''))))
+    _set('actividad_economica', _serie('actividad_economica', ''))
+    _set('valor_cotizacion_2', _fmt_pesos_k(_serie('valor_arl', pd.Series(index=df_out.index, data=''))))
+
+    # CCF
+    _set('dias_3', _serie('dias_ccf', ''))
+    _set('administradora_ccf', _serie('admin_ccf', ''))
+    _set('ibc_ccf', _fmt_pesos(_serie('ibc_ccf', pd.Series(index=df_out.index, data=''))))
+    _set('tarifa_ccf', _fmt_pct(_serie('tarifa_ccf', pd.Series(index=df_out.index, data=''))))
+    _set('valor_cotizacion_ccf', _fmt_pesos_k(_serie('valor_ccf', pd.Series(index=df_out.index, data=''))))
+
+    raw_exo = _serie('exonerado', '')
+    _set('exonerado_parafiscales_y_salud', raw_exo, mask=_mask_nonempty(raw_exo))
+
+    # Defaults (solo si faltan en referencia)
+    _fill('departamento', '')
+    _fill('ciudad', '')
+    _fill('extranjero', '')
+    _fill('colombiano_temporalmente_en_el_exterior', '')
+    _fill('fecha_radicacion_en_el_exterior', '')
+    _fill('tde', '')
+    _fill('tae', '')
+    _fill('tdp', '')
+    _fill('tap', '')
+    _fill('vsp', '')
+    _fill('fecha_vsp', '')
+    _fill('inicio_ige', '')
+    _fill('fin_ige', '')
+    _fill('inicio_lma', '')
+    _fill('fin_lma', '')
+    _fill('vac_lr', '')
+    _fill('inicio_vac_lr', '')
+    _fill('fin_vac_lr', '')
+    _fill('avp', '')
+    _fill('vct', '')
+    _fill('inicio_vct', '')
+    _fill('fin_vct', '')
+    _fill('irl', '')
+    _fill('inicio_irl', '')
+    _fill('fin_irl', '')
+    _fill('correcciones', '')
+    _fill('indicador_alto_riesgo', '')
+    _fill('fondo_solidaridad_pensional', '')
+    _fill('fondo_subsistencia', '')
+    _fill('valor_no_retenido', '')
+    _fill('valor_upc', '')
+    _fill('n_autorizacion_incapacidad_eg', '')
+    _fill('valor_incapacidad_eg', '')
+    _fill('n_autorizacion_lma', '')
+    _fill('valor_licencia_maternidad', '')
+    _fill('clase', '')
+    _fill('centro_de_trabajo', '')
+    _fill('ibc_otros_parafiscales', '')
+    _fill('tarifa_sena', '0.00%')
+    _fill('valor_cotizacion_sena', '$')
+    _fill('tarifa_icbf', '0.00%')
+    _fill('valor_cotizacion_icbf', '$')
+    _fill('tarifa_esap', '0.00%')
+    _fill('valor_cotizacion_esap', '$')
+    _fill('tarifa_men', '0.00%')
+    _fill('valor_cotizacion_men', '$')
+
+    df_cmp = df_cmp.reindex(columns=cols)
+    df_cmp = df_cmp.where(df_cmp.notna(), '')
+    return df_cmp
 
 
 def exportar_csv_formato_comparacion(
