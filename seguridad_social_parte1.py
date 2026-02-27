@@ -48,79 +48,145 @@ from pathlib import Path
 # Tabla de codigos administradoras
 # ---------------------------------------------------------------------------
 DEFAULT_CODIGOS_ADMIN = {
-    # AFP / Fondos de Pensiones
-    '230101': 'AFP ISS (COLPENSIONES)',
-    '230201': 'AFP COLFONDOS',
-    '230301': 'AFP PORVENIR',
-    '230401': 'AFP OLD MUTUAL',
-    '230501': 'AFP PROTECCION',
-    '230601': 'AFP ING (PROTECCION)',
-    '230701': 'AFP SANTANDER',
-    '230801': 'AFP DAVIVIR',
-    '230901': 'AFP HORIZONTE (PORVENIR)',
-    '231001': 'AFP COLFONDOS',
-    '231101': 'AFP SKANDIA',
-    # EPS / Entidades Promotoras de Salud
-    'EPS001': 'COLSEGUROS (SURA)',
+    # AFP / Fondos de Pensiones — codigos reales extraidos de comparacion.csv
+    '230201': 'PROTECCION',
+    '230301': 'PORVENIR',
+    '230901': 'SKANDIA',
+    '231001': 'COLFONDOS',
+    # Codigos directos COLPENSIONES (formato XX25-14)
+    '0025-14': 'COLPENSIONES',
+    '0325-14': 'COLPENSIONES',
+    '0525-14': 'COLPENSIONES',
+    '0725-14': 'COLPENSIONES',
+    '25-14': 'COLPENSIONES',
+    # EPS — codigos reales extraidos de comparacion.csv
+    'EPS001': 'ALIANSALUD EPS (ANTES COLMEDICA)',
     'EPS002': 'SALUD TOTAL',
-    'EPS003': 'CAFESALUD',
-    'EPS005': 'FAMISANAR',
+    'EPS005': 'SANITAS',
     'EPS008': 'COMPENSAR',
-    'EPS010': 'MEDIMAS EPS',
-    'EPS012': 'COOSALUD',
-    'EPS016': 'SERVICIO OCCIDENTAL DE SALUD',
-    'EPS017': 'SURA EPS',
-    'EPS018': 'ALIANSALUD',
-    'EPS037': 'NUEVA EPS',
-    'EPS040': 'SANITAS EPS',
-    'EPS041': 'COOMEVA EPS',
-    'EPS044': 'AMBUQ (SALUD BOLIVAR)',
-    'EPS046': 'FERROCARRILES (COLPENSIONES)',
-    'EPS048': 'ECOOPSOS',
-    'CCFC20': 'COMPENSAR SALUD',
-    'CCFC33': 'COMFENALCO ANTIOQUIA SALUD',
-    'CCFC50': 'COLSUBSIDIO SALUD',
-    'CCFC55': 'CAFAM SALUD',
-    'EPSC25': 'EPS CONVIDA',
-    'EPSC34': 'EPS SOS',
-    'EPSIC1': 'EPS MAGISTERIO 1',
-    'EPSIC3': 'EPS MAGISTERIO 3',
-    'EPSIC4': 'EPS MAGISTERIO 4',
-    'EPSIC5': 'EPS MAGISTERIO 5',
-    'EPSIC6': 'EPS MAGISTERIO 6',
-    'ESSC07': 'MEDIAS (SUBSIDIADO)',
-    'ESSC18': 'CONVIDA (SUBSIDIADO)',
-    'ESSC24': 'COOSALUD SUBSIDIADA',
-    'ESSC62': 'CAJACOPI SALUD',
-    'MIN001': 'MINISTERIO SALUD',
-    # CCF / Cajas de Compensacion Familiar
-    'CCF04': 'COMFENALCO ANTIOQUIA',
-    'CCF07': 'COMFACOR',
-    'CCF08': 'COMFABOY',
-    'CCF10': 'COFREM',
-    'CCF11': 'COMFAMILIAR RISARALDA',
-    'CCF13': 'COMFAMILIAR HUILA',
-    'CCF14': 'COMFACUNDI',
-    'CCF15': 'COMFATOL',
-    'CCF16': 'COMFAORIENTE',
+    'EPS010': 'EPS SURA (ANTES SUSALUD)',
+    'EPS012': 'COMFENALCO VALLE',
+    'EPS017': 'FAMISANAR',
+    'EPS018': 'S.O.S. SERVICIO OCCIDENTAL DE SALUD S.A.',
+    'EPS037': 'NUEVA E.P.S.',
+    'EPS040': 'SAVIA SALUD',
+    'EPS041': 'NUEVA EPS MOVILIDAD',
+    'EPS046': 'SALUD MIA EPS',
+    'EPS048': 'EPS MUTUAL SER',
+    'CCFC20': 'COMFACHOCO',
+    'CCFC33': 'EPS FAMILIAR DE COLOMBIA SAS',
+    'CCFC50': 'COMFAORIENTE',
+    'CCFC55': 'CAJACOPI',
+    'EPSC25': 'CAPRESOCA',
+    'EPSC34': 'CAPITAL SALUD',
+    'EPSIC1': 'DUSAKAWI',
+    'EPSIC3': 'A.I.C.',
+    'EPSIC4': 'ANAS WAYUU',
+    'EPSIC5': 'MALLAMAS',
+    'EPSIC6': 'PIJAOSALUD',
+    'ESSC07': 'MUTUAL SER',
+    'ESSC18': 'EMSSANAR',
+    'ESSC24': 'COOSALUD MOVILIDAD',
+    'ESSC62': 'ASMET SALUD EPS SAS',
+    'MIN001': 'FOSYGA',
+    # CCF — codigos reales extraidos de comparacion.csv
+    'CCF04': 'COMFAMA',
+    'CCF07': 'COMFAMILIAR ATLANTICO',
+    'CCF08': 'COMFENALCO CARTAGENA',
+    'CCF10': 'COMFABOY',
+    'CCF11': 'CONFAMILIARES',
+    'CCF13': 'COMFACA',
+    'CCF14': 'COMFACAUCA',
+    'CCF15': 'COMFACESAR',
+    'CCF16': 'COMFACOR',
     'CCF22': 'COLSUBSIDIO',
-    'CCF29': 'COMFANAR',
-    'CCF30': 'COMCAJA',
-    'CCF32': 'COMFAMILIAR CARTAGENA',
+    'CCF29': 'COMFACHOCO',
+    'CCF30': 'COMFAMILIAR GUAJIRA',
+    'CCF32': 'COMFAMILIAR HUILA',
     'CCF33': 'CAJAMAG',
-    'CCF34': 'COMFACESAR',
-    'CCF35': 'COMFAPUTUMAYO',
-    'CCF37': 'COMFASURORIENTE',
-    'CCF40': 'COMFAUCA',
-    'CCF41': 'COMFACAUCA',
-    'CCF43': 'COMFACHOCO',
-    'CCF44': 'CAFAM',
-    'CCF48': 'COMFAMILIAR ATLANTICO',
-    'CCF56': 'COMFENALCO SANTANDER',
-    'CCF63': 'COMFAMILIAR NARINO',
-    'CCF65': 'COMCAUCA',
-    'CCF67': 'COMFABOL',
-    'CCF69': 'COMFACOR (CORDOBA)',
+    'CCF34': 'COFREM',
+    'CCF35': 'COMFAMILIAR NARINO',
+    'CCF37': 'COMFANORTE',
+    'CCF40': 'COMFENALCO SANTANDER',
+    'CCF41': 'COMFASUCRE',
+    'CCF43': 'COMFENALCO QUINDIO',
+    'CCF44': 'COMFAMILIAR RISARALDA',
+    'CCF48': 'COMFATOLIMA',
+    'CCF56': 'COMFENALCO VALLE',
+    'CCF63': 'COMFAMILIAR PUTUMAYO',
+    'CCF65': 'CAFAMAZ',
+    'CCF67': 'COMFIAR',
+    'CCF69': 'COMFACASANARE',
+}
+
+# Lookup DANE: cod_municipio -> (ciudad, departamento)
+DANE_MUNICIPIOS = {
+    '05001': ('MEDELLIN', 'ANTIOQUIA'),
+    '08001': ('BARRANQUILLA', 'ATLANTICO'),
+    '11001': ('BOGOTA', 'BOGOTA D.C.'),
+    '13001': ('CARTAGENA', 'BOLIVAR'),
+    '15001': ('TUNJA', 'BOYACA'),
+    '17001': ('MANIZALES', 'CALDAS'),
+    '18001': ('FLORENCIA', 'CAQUETA'),
+    '19001': ('POPAYAN', 'CAUCA'),
+    '20001': ('VALLEDUPAR', 'CESAR'),
+    '23001': ('MONTERIA', 'CORDOBA'),
+    '27001': ('QUIBDO', 'CHOCO'),
+    '41001': ('NEIVA', 'HUILA'),
+    '44001': ('RIOHACHA', 'LA GUAJIRA'),
+    '47001': ('SANTA MARTA', 'MAGDALENA'),
+    '50001': ('VILLAVICENCIO', 'META'),
+    '52001': ('PASTO', 'NARINO'),
+    '54001': ('CUCUTA', 'NORTE DE SANTANDER'),
+    '63001': ('ARMENIA', 'QUINDIO'),
+    '66001': ('PEREIRA', 'RISARALDA'),
+    '68001': ('BUCARAMANGA', 'SANTANDER'),
+    '70001': ('SINCELEJO', 'SUCRE'),
+    '73001': ('IBAGUE', 'TOLIMA'),
+    '76001': ('CALI', 'VALLE DEL CAUCA'),
+    '81001': ('ARAUCA', 'ARAUCA'),
+    '85001': ('YOPAL', 'CASANARE'),
+    '86001': ('MOCOA', 'PUTUMAYO'),
+    '91001': ('LETICIA', 'AMAZONAS'),
+}
+
+# Lookup tipo_cotizante: codigo -> etiqueta oficial PILA
+TIPO_COTIZANTE_LABEL = {
+    '0100': '1. DEPENDIENTE',
+    '0200': '2. TRABAJADOR INDEPENDIENTE',
+    '0300': '3. PENSIONADO Y ACTIVO',
+    '0400': '4. MADRE SUSTITUTA',
+    '1200': '12. APRENDIZ SENA ETAPA PRODUCTIVA',
+    '1300': '13. APRENDIZ SENA ETAPA LECTIVA',
+    '1900': '19. APRENDICES ETAPA LECTIVA LEY 2466 DE 2025',
+    '2300': '23. COTIZANTE AL REGIMEN ESPECIAL DE PRIMA MEDIA',
+    '4500': '45. TRABAJADOR DE TIEMPO PARCIAL',
+    '5500': '55. COTIZANTE VOLUNTARIO',
+}
+
+# Lookup ARL: prefijo de cod_entidad (4 dig) -> nombre ARL
+ARL_POR_PREFIJO = {
+    '1411': 'ARL SURA',
+    '1471': 'ARL SURA',
+    '1501': 'ARL POSITIVA',
+    '1511': 'ARL LIBERTY SEGUROS',
+    '1521': 'ARL COLMENA',
+    '1531': 'ARL BOLIVAR',
+    '1541': 'ARL EQUIDAD SEGUROS',
+    '1551': 'ARL MAPFRE',
+    '1561': 'ARL ASMETSALUD',
+    '2521': 'ARL SURA',
+    '3522': 'ARL SURA',
+    '5421': 'ARL SURA',
+}
+
+# Lookup clase ARL: tarifa -> clase de riesgo
+ARL_CLASE_POR_TARIFA = {
+    0.00522: '1',
+    0.01044: '2',
+    0.02436: '3',
+    0.04350: '4',
+    0.06960: '5',
 }
 
 
@@ -128,12 +194,8 @@ def cargar_codigos_admin(ruta: Path = None) -> dict:
     """Carga la tabla de codigos de administradoras desde codigos_admin.txt."""
     if ruta is None:
         ruta = Path(__file__).with_name('codigos_admin.txt')
-    ruta_autogen = Path(__file__).with_name('codigos_admin_autogen.txt')
 
-    if not ruta.exists():
-        codigos_base = dict(DEFAULT_CODIGOS_ADMIN)
-    else:
-        codigos_base = {}
+    codigos_base = dict(DEFAULT_CODIGOS_ADMIN)
 
     if ruta.exists():
         try:
@@ -153,26 +215,7 @@ def cargar_codigos_admin(ruta: Path = None) -> dict:
             if codigo:
                 codigos_base[codigo] = nombre
 
-    # Sobrescribir con autogen si existe
-    if ruta_autogen.exists():
-        try:
-            contenido = ruta_autogen.read_text(encoding='utf-8')
-        except Exception:
-            contenido = ruta_autogen.read_text(encoding='latin-1')
-
-        for linea in contenido.splitlines():
-            linea = linea.strip()
-            if not linea or linea.startswith('#') or linea.startswith('['):
-                continue
-            if ';' not in linea:
-                continue
-            codigo, nombre = linea.split(';', 1)
-            codigo = codigo.strip().upper()
-            nombre = nombre.strip()
-            if codigo:
-                codigos_base[codigo] = nombre
-
-    return codigos_base or dict(DEFAULT_CODIGOS_ADMIN)
+    return codigos_base
 
 
 CODIGOS_ADMIN = cargar_codigos_admin()
@@ -1427,37 +1470,80 @@ def _parsear_tipo02(linea: str) -> dict:
     rec['Primer_Apellido']  = _campo(linea, 36, 56)
     rec['Segundo_Apellido'] = _campo(linea, 56, 86)
     rec['Primer_Nombre']    = _campo(linea, 86, 106)
-    # Segundo nombre: hasta pos 142 (antes de zona de indicadores)
-    rec['Segundo_Nombre']   = linea[106:142].strip() if len(linea) > 142 else linea[106:].strip()
+    # Segundo nombre: [106:136] (30 chars), indicadores arrancan en 136
+    rec['Segundo_Nombre']   = linea[106:136].strip() if len(linea) > 136 else linea[106:].strip()
     rec['Nombre_Completo']  = ' '.join(filter(None, [
         rec['Primer_Apellido'], rec['Segundo_Apellido'],
         rec['Primer_Nombre'],   rec['Segundo_Nombre'],
     ]))
 
-    rec['Cod_Municipio']     = _campo(linea, 31, 36)
-    rec['Tipo_Cotizante']    = _campo(linea, 25, 29)
-    rec['Subtipo_Cotizante'] = _campo(linea, 29, 31)
+    cod_muni = _campo(linea, 31, 36)
+    rec['Cod_Municipio']     = cod_muni
+    ciudad_info = DANE_MUNICIPIOS.get(cod_muni, ('', ''))
+    rec['Ciudad']            = ciudad_info[0]
+    rec['Departamento']      = ciudad_info[1]
+
+    tipo_cot_raw             = _campo(linea, 25, 29)
+    subtipo_raw              = _campo(linea, 29, 31)
+    rec['Tipo_Cotizante']    = tipo_cot_raw
+    rec['Subtipo_Cotizante'] = subtipo_raw
+    rec['Tipo_De_Cotizante'] = TIPO_COTIZANTE_LABEL.get(tipo_cot_raw, tipo_cot_raw)
+    rec['Subtipo_De_Cotizante'] = 'NINGUNO' if subtipo_raw.strip() in ('', 'X') else subtipo_raw
 
     # ── Indicadores de novedad ──────────────────────────────────────────────
+    # Posiciones confirmadas empiricamente:
+    # 136=ING, 137=RET, 142=VSP, 144=VST, 148=SLN(L)
     def _char(pos: int) -> str:
         return linea[pos] if len(linea) > pos else ' '
 
-    rec['ING'] = 'X' if _char(142) == 'X' else ''
-    rec['VST'] = 'X' if _char(144) == 'X' else ''
-    rec['RET'] = 'X' if _char(145) == 'X' else ''
-    rec['SLN'] = 'X' if _char(148) == 'L' else ''
-    rec['IGE'] = ''
-    rec['LMA'] = ''
+    _SISTEMAS = 'Todos los sistemas (ARL, AFP, CCF, EPS)'
+    has_ing = _char(136) == 'X'
+    has_ret = _char(137) == 'X'
+    has_vsp = _char(142) == 'X'
+    has_vst = _char(144) == 'X'
+    has_sln = _char(148) == 'L'
 
-    # Fechas de novedad en el orden en que aparecen en la linea
-    fechas = re.findall(r'\d{4}-\d{2}-\d{2}', linea)
-    rec['Fecha_ING']   = fechas[0] if rec['ING'] == 'X' and fechas else ''
-    rec['Fecha_RET']   = fechas[0] if rec['RET'] == 'X' and fechas else ''
-    rec['Inicio_SLN']  = fechas[0] if rec['SLN'] == 'X' and len(fechas) > 0 else ''
-    rec['Fin_SLN']     = fechas[1] if rec['SLN'] == 'X' and len(fechas) > 1 else ''
+    rec['ING'] = _SISTEMAS if has_ing else 'NO'
+    rec['RET'] = _SISTEMAS if has_ret else 'NO'
+    rec['VSP'] = 'SI' if has_vsp else 'NO'
+    rec['VST'] = 'SI' if has_vst else 'NO'
+    rec['SLN'] = 'SI' if has_sln else 'NO'
+    rec['IGE'] = 'NO'
+    rec['LMA'] = 'NO'
+    rec['TDE'] = 'NO'
+    rec['TAE'] = 'NO'
+    rec['TDP'] = 'NO'
+    rec['TAP'] = 'NO'
+    rec['AVP'] = 'NO'
+    rec['VCT'] = 'NO'
+    rec['IRL'] = 'NO'
+
+    # Fecha ING en pos 514, Fecha RET en pos 524 (formato YYYY-MM-DD)
+    def _fecha_pos(pos: int) -> str:
+        chunk = linea[pos:pos + 10] if len(linea) > pos + 10 else ''
+        m = re.match(r'(\d{4})-(\d{2})-(\d{2})', chunk)
+        if m:
+            return f"{m.group(3)}/{m.group(2)}/{m.group(1)}"
+        return ''
+
+    rec['Fecha_ING']   = _fecha_pos(514) if has_ing else ''
+    rec['Fecha_RET']   = _fecha_pos(524) if has_ret else ''
+    rec['Fecha_VSP']   = ''
+    rec['Inicio_SLN']  = ''
+    rec['Fin_SLN']     = ''
+    rec['Inicio_IGE']  = ''
+    rec['Fin_IGE']     = ''
+    rec['Inicio_LMA']  = ''
+    rec['Fin_LMA']     = ''
+    rec['Inicio_VAC_LR'] = ''
+    rec['Fin_VAC_LR']    = ''
+    rec['Inicio_VCT']  = ''
+    rec['Fin_VCT']     = ''
+    rec['Inicio_IRL']  = ''
+    rec['Fin_IRL']     = ''
 
     # Periodo de planilla (ej. S14-28 -> '14-28')
-    per_m = re.search(r'S(\d{2}-\d{2})', linea)
+    per_m = re.search(r'[SN](\d{2}-\d{2})', linea[490:540])
     rec['Periodo_Planilla'] = per_m.group(1) if per_m else ''
 
     rec['Forma_Salario'] = _char(200)  # F=Fijo, V=Variable
@@ -1465,7 +1551,7 @@ def _parsear_tipo02(linea: str) -> dict:
     # ── AFP / Pension ───────────────────────────────────────────────────────
     cod_admin_raw        = _campo(linea, 151, 159)
     rec['Cod_Admin_AFP'] = _afp_code_clean(cod_admin_raw)
-    rec['Admin_AFP']     = _lookup(cod_admin_raw)
+    rec['Admin_AFP']     = _lookup(cod_admin_raw) or _lookup(rec['Cod_Admin_AFP'])
 
     rec['Dias_AFP'] = int(linea[183:185]) if len(linea) > 185 and linea[183:185].isdigit() else None
     rec['IBC_AFP']  = int(linea[201:210]) if len(linea) > 210 and linea[201:210].isdigit() else None
@@ -1527,14 +1613,28 @@ def _parsear_tipo02(linea: str) -> dict:
             rec[k] = None
         rec['Exonerado'] = ''
 
+    # ── Tarifas: clase ARL ───────────────────────────────────────────────────
+    # (bloque de tarifas ya procesado arriba; accedemos a t_arl aqui)
+    _t_arl_for_clase = rec.get('Tarifa_ARL', 0.0) or 0.0
+    _clase_arl = ''
+    for _tref, _cls in ARL_CLASE_POR_TARIFA.items():
+        if abs(_t_arl_for_clase - _tref) < 0.00001:
+            _clase_arl = _cls
+            break
+    rec['Clase_ARL'] = _clase_arl
+
     # ── Fin de linea: horas laboradas y codigo entidad ───────────────────────
     eol_m = re.search(r'(\d{9})(\d{3})\s+(\d{7})\s*$', linea)
     if eol_m:
         rec['Horas_Laboradas'] = int(eol_m.group(2))
-        rec['Cod_Entidad']     = eol_m.group(3)
+        cod_entidad            = eol_m.group(3)
+        rec['Cod_Entidad']     = cod_entidad
+        # ARL: prefijo 4 digitos del cod_entidad
+        rec['Admin_ARL'] = ARL_POR_PREFIJO.get(cod_entidad[:4], '')
     else:
         rec['Horas_Laboradas'] = None
         rec['Cod_Entidad']     = ''
+        rec['Admin_ARL']       = ''
 
     return rec
 

@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-app.py
-------
-Streamlit UI for PILA TXT parsing, validation, and export.
+app.py — Visor PILA Seguridad Social
 """
 
 import io
@@ -13,397 +11,333 @@ import streamlit as st
 
 from seguridad_social_parte1 import (
     adaptar_admin_con_referencias,
-    construir_df_formato_comparacion,
-    generar_reporte_inconsistencias,
     parse_pila_txt,
     resumen_planilla,
 )
 
 # ---------------------------------------------------------------------------
-# Page config
+# Configuracion
 # ---------------------------------------------------------------------------
 st.set_page_config(
-    page_title="PILA - Seguridad Social",
-    page_icon="PILA",
+    page_title="PILA — Seguridad Social",
+    page_icon="📋",
     layout="wide",
+    initial_sidebar_state="collapsed",
 )
 
-# ---------------------------------------------------------------------------
-# Simple, neutral styles
-# ---------------------------------------------------------------------------
-st.markdown(
-    """
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&display=swap');
-
-    html, body, [data-testid="stAppViewContainer"] {
-        background: #f5f5f2;
-        color: #0b0f19;
-        font-family: "Manrope", system-ui, -apple-system, sans-serif;
-    }
-
-    [data-testid="stSidebar"] { display: none; }
-
-    .header {
-        background: #ffffff;
-        border: 1px solid #e6e6e1;
-        border-radius: 14px;
-        padding: 16px 18px;
-        margin-bottom: 14px;
-    }
-    .header h1 {
-        margin: 0 0 6px 0;
-        font-size: 26px;
-    }
-    .header p { margin: 0; color: #6b7280; font-size: 13px; }
-
-    .section-title {
-        font-weight: 700;
-        font-size: 14px;
-        text-transform: uppercase;
-        letter-spacing: 0.6px;
-        color: #374151;
-        margin: 12px 0 8px 0;
-    }
-
-    .panel {
-        background: #ffffff;
-        border: 1px solid #e6e6e1;
-        border-radius: 14px;
-        padding: 12px 14px;
-        margin-bottom: 12px;
-    }
-
-    .stat-grid {
-        display: grid;
-        grid-template-columns: repeat(5, minmax(140px, 1fr));
-        gap: 10px;
-        margin-top: 8px;
-    }
-    .stat-card {
-        background: #ffffff;
-        border: 1px solid #e6e6e1;
-        border-radius: 12px;
-        padding: 10px 12px;
-    }
-    .stat-card .label { font-size: 11px; color: #6b7280; margin-bottom: 6px; }
-    .stat-card .value { font-size: 18px; font-weight: 700; color: #0b0f19; }
-
-    .tiny { font-size: 12px; color: #6b7280; }
-
-    .stDownloadButton button {
-        border-radius: 10px !important;
-        border: 1px solid #d1d5db !important;
-        font-weight: 600 !important;
-        background: #111827 !important;
-        color: #f9fafb !important;
-    }
-
-    @media (max-width: 1200px) {
-        .stat-grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# ---------------------------------------------------------------------------
-# Output directory
-# ---------------------------------------------------------------------------
-BASE_DIR = Path(__file__).parent
+BASE_DIR  = Path(__file__).parent
 SALIDA_DIR = BASE_DIR / "Salida"
 SALIDA_DIR.mkdir(parents=True, exist_ok=True)
-
-SEP_CSV = ';'
-RUTA_REF_DEFAULT = BASE_DIR / "seguridad_archivos" / "NOMINA REGULAR" / "pila_modificada.txt"
+RUTA_REF_DEFAULT  = BASE_DIR / "seguridad_archivos" / "NOMINA REGULAR" / "pila_modificada.txt"
 RUTA_COMP_DEFAULT = BASE_DIR / "seguridad_archivos" / "NOMINA REGULAR" / "comparacion.csv"
+SEP = ";"
+
+# ---------------------------------------------------------------------------
+# Estilos
+# ---------------------------------------------------------------------------
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+html, body, [data-testid="stAppViewContainer"] {
+    background: #F0F2F6;
+    font-family: "Inter", system-ui, sans-serif;
+    color: #1C1C1E;
+}
+[data-testid="stSidebar"] { display: none; }
+[data-testid="stHeader"]  { background: transparent; }
+
+/* Header principal */
+.top-bar {
+    background: #1C1C1E;
+    border-radius: 16px;
+    padding: 20px 28px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.top-bar h1 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 700;
+    color: #FFFFFF;
+    letter-spacing: -0.3px;
+}
+.top-bar p {
+    margin: 4px 0 0 0;
+    font-size: 12px;
+    color: #8E8E93;
+}
+.badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-left: 6px;
+}
+.badge-ok  { background:#D1FAE5; color:#065F46; }
+.badge-no  { background:#FEE2E2; color:#991B1B; }
+
+/* Cards */
+.card {
+    background: #FFFFFF;
+    border-radius: 14px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+.card-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: #6B7280;
+    margin-bottom: 12px;
+}
+
+/* KPI strip */
+.kpi-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+.kpi {
+    background: #FFFFFF;
+    border-radius: 12px;
+    padding: 12px 16px;
+    flex: 1;
+    min-width: 150px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+.kpi .k-label { font-size: 11px; color: #9CA3AF; margin-bottom: 4px; }
+.kpi .k-value { font-size: 20px; font-weight: 700; color: #111827; }
+.kpi .k-sub   { font-size: 11px; color: #6B7280; margin-top: 2px; }
+
+/* Tabla */
+.stDataFrame { border-radius: 10px; overflow: hidden; }
+
+/* Botones descarga */
+.stDownloadButton > button {
+    background: #111827 !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    font-size: 13px !important;
+    padding: 10px 20px !important;
+    width: 100% !important;
+    cursor: pointer !important;
+}
+.stDownloadButton > button:hover {
+    background: #374151 !important;
+}
+
+/* File uploader */
+[data-testid="stFileUploader"] {
+    border-radius: 12px;
+}
+
+/* Inputs */
+.stMultiSelect [data-baseweb="select"] { border-radius: 10px; }
+.stTextInput input { border-radius: 10px; }
+
+/* Expander */
+[data-testid="stExpander"] { border-radius: 12px !important; border: 1px solid #E5E7EB !important; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #F3F4F6; }
+::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 3px; }
+</style>
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
-st.markdown(
-    """
-    <div class="header">
-        <h1>PILA - Seguridad Social</h1>
-        <p>Sube un TXT PILA. El sistema valida referencias automaticamente y genera exportaciones.</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-# ---------------------------------------------------------------------------
-# Reference status
-# ---------------------------------------------------------------------------
-ref_ok = RUTA_REF_DEFAULT.exists()
+ref_ok  = RUTA_REF_DEFAULT.exists()
 comp_ok = RUTA_COMP_DEFAULT.exists()
 
-st.markdown('<div class="section-title">Referencias</div>', unsafe_allow_html=True)
-with st.container():
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.caption(f"pila_modificada.txt: {'OK' if ref_ok else 'NO ENCONTRADO'}")
-    st.caption(f"comparacion.csv: {'OK' if comp_ok else 'NO ENCONTRADO'}")
-    st.markdown('</div>', unsafe_allow_html=True)
+badge_ref  = '<span class="badge badge-ok">REF OK</span>'  if ref_ok  else '<span class="badge badge-no">SIN REF</span>'
+badge_comp = '<span class="badge badge-ok">COMP OK</span>' if comp_ok else '<span class="badge badge-no">SIN COMP</span>'
+
+st.markdown(f"""
+<div class="top-bar">
+  <div>
+    <h1>PILA — Seguridad Social</h1>
+    <p>Parseo y validacion de planillas PILA en formato TXT</p>
+  </div>
+  <div>{badge_ref}{badge_comp}</div>
+</div>
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
 # Upload
 # ---------------------------------------------------------------------------
-st.markdown('<div class="section-title">Entrada</div>', unsafe_allow_html=True)
+st.markdown('<div class="card"><div class="card-title">Archivo de entrada</div>', unsafe_allow_html=True)
 archivo = st.file_uploader(
-    "Archivo PILA (TXT)",
+    "Sube el archivo PILA (.TxT / .txt)",
     type=["txt", "TxT", "TXT"],
-    accept_multiple_files=False,
+    label_visibility="collapsed",
 )
+st.markdown("</div>", unsafe_allow_html=True)
 
 if archivo is None:
-    st.markdown(
-        """
-        <div class="panel">
-            <div class="tiny">Sube un TXT PILA para iniciar el proceso.</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown("""
+    <div style="text-align:center; padding:40px; color:#9CA3AF; font-size:14px;">
+        Sube un archivo PILA TXT para comenzar.
+    </div>
+    """, unsafe_allow_html=True)
     st.stop()
 
 # ---------------------------------------------------------------------------
 # Parse
 # ---------------------------------------------------------------------------
-with st.spinner("Procesando archivo..."):
+with st.spinner("Procesando..."):
     contenido_bytes = archivo.read()
     df, info_empresa, info_totales = parse_pila_txt(contenido_bytes)
+    ruta_ref  = RUTA_REF_DEFAULT  if ref_ok  else None
+    ruta_comp = RUTA_COMP_DEFAULT if comp_ok else None
+    df = adaptar_admin_con_referencias(df, ruta_ref, ruta_comp)
 
-# ---------------------------------------------------------------------------
-# References are always auto-loaded
-# ---------------------------------------------------------------------------
-ruta_ref = RUTA_REF_DEFAULT if ref_ok else None
-ruta_comp = RUTA_COMP_DEFAULT if comp_ok else None
-
-df = adaptar_admin_con_referencias(df, ruta_ref, ruta_comp)
-
-# ---------------------------------------------------------------------------
-# Summary
-# ---------------------------------------------------------------------------
 resumen = resumen_planilla(df, info_empresa)
 
-st.markdown(
-    f"""
-    <div class="panel">
-        <div class="section-title">Resumen</div>
-        <div class="tiny">{archivo.name} | {len(df):,} registros tipo 02</div>
-        <div class="stat-grid">
-            <div class="stat-card"><div class="label">Empleados unicos</div><div class="value">{resumen['empleados_unicos']:,}</div></div>
-            <div class="stat-card"><div class="label">Total IBC</div><div class="value">${resumen['total_ibc']:,.0f}</div></div>
-            <div class="stat-card"><div class="label">Total Pension</div><div class="value">${resumen['total_pension']:,.0f}</div></div>
-            <div class="stat-card"><div class="label">Total EPS</div><div class="value">${resumen['total_eps']:,.0f}</div></div>
-            <div class="stat-card"><div class="label">Total ARL</div><div class="value">${resumen['total_arl']:,.0f}</div></div>
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-with st.expander("Informacion empresa / encabezado"):
-    st.json(info_empresa)
+# ---------------------------------------------------------------------------
+# KPIs
+# ---------------------------------------------------------------------------
+st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi">
+    <div class="k-label">Empleados</div>
+    <div class="k-value">{resumen['empleados_unicos']:,}</div>
+    <div class="k-sub">{len(df):,} registros</div>
+  </div>
+  <div class="kpi">
+    <div class="k-label">IBC Total</div>
+    <div class="k-value">${resumen['total_ibc']:,.0f}</div>
+  </div>
+  <div class="kpi">
+    <div class="k-label">Pension</div>
+    <div class="k-value">${resumen['total_pension']:,.0f}</div>
+  </div>
+  <div class="kpi">
+    <div class="k-label">Salud (EPS)</div>
+    <div class="k-value">${resumen['total_eps']:,.0f}</div>
+  </div>
+  <div class="kpi">
+    <div class="k-label">ARL</div>
+    <div class="k-value">${resumen['total_arl']:,.0f}</div>
+  </div>
+  <div class="kpi">
+    <div class="k-label">CCF</div>
+    <div class="k-value">${resumen['total_ccf']:,.0f}</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
-# Report
+# Filtros
 # ---------------------------------------------------------------------------
-reporte_bytes = None
-ruta_reporte = None
-if ruta_ref is not None:
-    with st.spinner("Generando reporte de inconsistencias..."):
-        ruta_reporte = SALIDA_DIR / f"{Path(archivo.name).stem}_reporte.txt"
-        generar_reporte_inconsistencias(df, ruta_ref, ruta_reporte, ruta_comp)
-        reporte_bytes = ruta_reporte.read_bytes()
+with st.expander("Filtros", expanded=False):
+    c1, c2, c3, c4, c5 = st.columns(5)
+    with c1:
+        ops_eps  = sorted(df['admin_eps'].dropna().unique()) if 'admin_eps' in df.columns else []
+        f_eps    = st.multiselect("EPS", ops_eps)
+    with c2:
+        ops_ccf  = sorted(df['admin_ccf'].dropna().unique()) if 'admin_ccf' in df.columns else []
+        f_ccf    = st.multiselect("CCF", ops_ccf)
+    with c3:
+        ops_afp  = sorted(df['admin_afp'].dropna().unique()) if 'admin_afp' in df.columns else []
+        f_afp    = st.multiselect("AFP", ops_afp)
+    with c4:
+        ops_tipo = sorted(df['tipo_de_cotizante'].dropna().unique()) if 'tipo_de_cotizante' in df.columns else []
+        f_tipo   = st.multiselect("Tipo cotizante", ops_tipo)
+    with c5:
+        buscar   = st.text_input("Buscar nombre / documento")
 
-# ---------------------------------------------------------------------------
-# Filters
-# ---------------------------------------------------------------------------
-st.markdown('<div class="section-title">Filtros</div>', unsafe_allow_html=True)
-with st.expander("Mostrar filtros", expanded=False):
-    row1 = st.columns(3)
-    row2 = st.columns(2)
-
-    with row1[0]:
-        ops_eps = sorted(df['cod_eps'].dropna().unique().tolist()) if 'cod_eps' in df.columns else []
-        filtro_eps = st.multiselect("EPS", ops_eps, default=[])
-
-    with row1[1]:
-        ops_ccf = sorted(df['cod_ccf'].dropna().unique().tolist()) if 'cod_ccf' in df.columns else []
-        filtro_ccf = st.multiselect("CCF", ops_ccf, default=[])
-
-    with row1[2]:
-        ops_afp = sorted(df['admin_afp'].dropna().unique().tolist()) if 'admin_afp' in df.columns else []
-        filtro_afp = st.multiselect("AFP", ops_afp, default=[])
-
-    with row2[0]:
-        ops_tipo = sorted(df['tipo_cotizante'].dropna().unique().tolist()) if 'tipo_cotizante' in df.columns else []
-        filtro_tipo = st.multiselect("Tipo cotizante", ops_tipo, default=[])
-
-    with row2[1]:
-        buscar = st.text_input("Buscar nombre / documento", "")
-
-_df = df.copy()
-
-if 'filtro_eps' in locals() and filtro_eps:
-    _df = _df[_df['cod_eps'].isin(filtro_eps)]
-if 'filtro_ccf' in locals() and filtro_ccf:
-    _df = _df[_df['cod_ccf'].isin(filtro_ccf)]
-if 'filtro_afp' in locals() and filtro_afp:
-    _df = _df[_df['admin_afp'].isin(filtro_afp)]
-if 'filtro_tipo' in locals() and filtro_tipo:
-    _df = _df[_df['tipo_cotizante'].isin(filtro_tipo)]
-if 'buscar' in locals() and buscar:
+df_f = df.copy()
+if f_eps:   df_f = df_f[df_f['admin_eps'].isin(f_eps)]
+if f_ccf:   df_f = df_f[df_f['admin_ccf'].isin(f_ccf)]
+if f_afp:   df_f = df_f[df_f['admin_afp'].isin(f_afp)]
+if f_tipo:  df_f = df_f[df_f['tipo_de_cotizante'].isin(f_tipo)]
+if buscar:
     mask = (
-        _df.get('nombre_completo', pd.Series(dtype=str))
-        .str.contains(buscar.upper(), case=False, na=False)
-        |
-        _df.get('no_id', pd.Series(dtype=str))
-        .str.contains(buscar, case=False, na=False)
+        df_f.get('nombre_completo', pd.Series(dtype=str)).str.contains(buscar.upper(), case=False, na=False)
+        | df_f.get('no_id', pd.Series(dtype=str)).str.contains(buscar, case=False, na=False)
     )
-    _df = _df[mask]
-
-df_filtrado = _df
-st.caption(f"Mostrando {len(df_filtrado):,} de {len(df):,} registros")
+    df_f = df_f[mask]
 
 # ---------------------------------------------------------------------------
-# Data table
+# Tabla
 # ---------------------------------------------------------------------------
-st.markdown('<div class="section-title">Datos</div>', unsafe_allow_html=True)
-cols_default = [
-    'no', 'tipo_id', 'no_id', 'nombre_completo',
-    'tipo_cotizante', 'cod_municipio',
+st.markdown('<div class="card"><div class="card-title">Datos</div>', unsafe_allow_html=True)
+
+COLS_DEFAULT = [
+    'no', 'tipo_id', 'no_id', 'primer_apellido', 'segundo_apellido',
+    'primer_nombre', 'segundo_nombre',
+    'ciudad', 'departamento',
+    'tipo_de_cotizante', 'subtipo_de_cotizante', 'horas_laboradas',
     'ing', 'fecha_ing', 'ret', 'fecha_ret', 'vst', 'sln',
-    'cod_admin_afp', 'admin_afp', 'dias_afp', 'ibc_afp', 'tarifa_afp', 'valor_afp',
-    'cod_eps',       'admin_eps', 'dias_eps', 'ibc_eps', 'tarifa_eps', 'valor_eps',
-    'dias_arl',                  'ibc_arl',  'tarifa_arl', 'valor_arl',
-    'cod_ccf',       'admin_ccf', 'dias_ccf', 'ibc_ccf', 'tarifa_ccf', 'valor_ccf',
-    'ibc', 'horas_laboradas', 'exonerado',
+    'admin_afp', 'dias_afp', 'ibc_afp', 'tarifa_afp', 'valor_afp',
+    'admin_eps', 'dias_eps', 'ibc_eps', 'tarifa_eps', 'valor_eps',
+    'admin_arl', 'clase_arl', 'dias_arl', 'ibc_arl', 'tarifa_arl', 'valor_arl',
+    'admin_ccf', 'dias_ccf', 'ibc_ccf', 'tarifa_ccf', 'valor_ccf',
+    'ibc', 'exonerado', 'cod_entidad',
 ]
-cols_disp = [c for c in cols_default if c in df_filtrado.columns]
-cols_extra = [c for c in df_filtrado.columns if c not in cols_default]
+cols_disp = [c for c in COLS_DEFAULT if c in df_f.columns]
 
 with st.expander("Seleccionar columnas", expanded=False):
-    todas_cols = cols_disp + cols_extra
-    cols_sel = st.multiselect("Columnas", todas_cols, default=cols_disp)
+    todas = cols_disp + [c for c in df_f.columns if c not in cols_disp]
+    cols_sel = st.multiselect("Columnas visibles", todas, default=cols_disp)
 
-df_mostrar = df_filtrado[cols_sel] if cols_sel else df_filtrado[cols_disp]
-st.dataframe(df_mostrar, use_container_width=True, height=520)
+st.caption(f"{len(df_f):,} de {len(df):,} registros")
+st.dataframe(df_f[cols_sel] if cols_sel else df_f[cols_disp], use_container_width=True, height=500)
+st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
-# Export
+# Exportar — solo 1 CSV
 # ---------------------------------------------------------------------------
-st.markdown('<div class="section-title">Exportar</div>', unsafe_allow_html=True)
+st.markdown('<div class="card"><div class="card-title">Exportar</div>', unsafe_allow_html=True)
 
-csv_buffer = io.StringIO()
-df_filtrado.to_csv(csv_buffer, index=False, encoding='utf-8-sig', sep=SEP_CSV)
-csv_bytes = csv_buffer.getvalue().encode('utf-8-sig')
+csv_buf = io.StringIO()
+df_f.to_csv(csv_buf, index=False, encoding="utf-8-sig", sep=SEP)
+csv_bytes = csv_buf.getvalue().encode("utf-8-sig")
+nombre_csv = Path(archivo.name).stem + ".csv"
 
-nombre_salida = Path(archivo.name).stem + '.csv'
-
-st.download_button(
-    label="Descargar CSV normalizado",
-    data=csv_bytes,
-    file_name=nombre_salida,
-    mime='text/csv',
-)
-
-ruta_comp_eff = ruta_comp
-if ruta_comp_eff is None and RUTA_COMP_DEFAULT.exists():
-    ruta_comp_eff = RUTA_COMP_DEFAULT
-
-df_cmp_oficial = construir_df_formato_comparacion(
-    df_filtrado,
-    ruta_comp_eff,
-    incluir_codigos=False,
-    encabezado='oficial',
-)
-csv_cmp_oficial_buffer = io.StringIO()
-df_cmp_oficial.to_csv(csv_cmp_oficial_buffer, index=False, encoding='utf-8-sig', sep=';')
-csv_cmp_oficial_bytes = csv_cmp_oficial_buffer.getvalue().encode('utf-8-sig')
-
-nombre_salida_cmp = Path(archivo.name).stem + '_comparacion.csv'
-
-st.download_button(
-    label="Descargar CSV comparacion oficial",
-    data=csv_cmp_oficial_bytes,
-    file_name=nombre_salida_cmp,
-    mime='text/csv',
-)
-
-df_cmp_codigos = construir_df_formato_comparacion(
-    df_filtrado,
-    ruta_comp_eff,
-    incluir_codigos=True,
-    encabezado='snake',
-    forzar_texto_excel_cols=['tipo_cotizante', 'cod_municipio'],
-)
-csv_cmp_codigos_buffer = io.StringIO()
-df_cmp_codigos.to_csv(csv_cmp_codigos_buffer, index=False, encoding='utf-8-sig', sep=';')
-csv_cmp_codigos_bytes = csv_cmp_codigos_buffer.getvalue().encode('utf-8-sig')
-
-nombre_salida_cmp_codigos = Path(archivo.name).stem + '_comparacion_codigos.csv'
-
-st.download_button(
-    label="Descargar CSV comparacion codigos",
-    data=csv_cmp_codigos_bytes,
-    file_name=nombre_salida_cmp_codigos,
-    mime='text/csv',
-)
-
-if reporte_bytes is not None and ruta_reporte is not None:
+col_dl, col_save = st.columns([1, 2])
+with col_dl:
     st.download_button(
-        label="Descargar reporte de inconsistencias",
-        data=reporte_bytes,
-        file_name=ruta_reporte.name,
-        mime='text/plain',
+        label="Descargar CSV",
+        data=csv_bytes,
+        file_name=nombre_csv,
+        mime="text/csv",
     )
+with col_save:
+    if st.checkbox("Guardar en carpeta Salida", value=True):
+        (SALIDA_DIR / nombre_csv).write_bytes(csv_bytes)
+        st.caption(f"Guardado en {SALIDA_DIR / nombre_csv}")
 
-guardar_en_disco = st.checkbox(
-    "Guardar archivos en carpeta Salida",
-    value=True,
-    help=f"Ruta: {SALIDA_DIR}",
-)
-
-if guardar_en_disco:
-    ruta_guardada = SALIDA_DIR / nombre_salida
-    ruta_guardada.write_bytes(csv_bytes)
-    ruta_cmp_guardada = SALIDA_DIR / nombre_salida_cmp
-    ruta_cmp_guardada.write_bytes(csv_cmp_oficial_bytes)
-    ruta_cmp_cod_guardada = SALIDA_DIR / nombre_salida_cmp_codigos
-    ruta_cmp_cod_guardada.write_bytes(csv_cmp_codigos_bytes)
-    if reporte_bytes is not None and ruta_reporte is not None:
-        ruta_reporte.write_bytes(reporte_bytes)
-    st.caption(f"Guardado en: {SALIDA_DIR}")
+st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
-# Quick analysis (optional)
+# Analisis
 # ---------------------------------------------------------------------------
-with st.expander("Analisis rapido", expanded=False):
-    c1, c2 = st.columns(2)
-    with c1:
-        if 'cod_eps' in df_filtrado.columns and 'ibc_eps' in df_filtrado.columns:
-            grp = (
-                df_filtrado.groupby('cod_eps', dropna=False)['ibc_eps']
-                .sum().sort_values(ascending=False).reset_index()
-            )
-            grp.columns = ['EPS', 'IBC EPS Total']
-            st.bar_chart(grp.set_index('EPS'))
-        else:
-            st.info("No hay datos de EPS.")
-    with c2:
-        if 'admin_afp' in df_filtrado.columns and 'valor_afp' in df_filtrado.columns:
-            grp = (
-                df_filtrado.groupby('admin_afp', dropna=False)['valor_afp']
-                .sum().sort_values(ascending=False).reset_index()
-            )
-            grp.columns = ['AFP', 'Valor AFP Total']
-            st.bar_chart(grp.set_index('AFP'))
-        else:
-            st.info("No hay datos de AFP.")
+with st.expander("Analisis por administradora", expanded=False):
+    tc1, tc2 = st.columns(2)
+    with tc1:
+        st.markdown("**Valor AFP por administradora**")
+        if 'admin_afp' in df_f.columns and 'valor_afp' in df_f.columns:
+            grp = df_f.groupby('admin_afp')['valor_afp'].sum().sort_values(ascending=False)
+            st.bar_chart(grp)
+    with tc2:
+        st.markdown("**Valor EPS por administradora**")
+        if 'admin_eps' in df_f.columns and 'valor_eps' in df_f.columns:
+            grp = df_f.groupby('admin_eps')['valor_eps'].sum().sort_values(ascending=False)
+            st.bar_chart(grp)
 
-with st.expander("Registro 06", expanded=False):
+with st.expander("Empresa / Totales", expanded=False):
+    st.json(info_empresa)
     if info_totales:
         st.text(info_totales.get('raw', ''))
-    else:
-        st.info("No hay registro de totales.")
