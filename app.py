@@ -11,6 +11,7 @@ import streamlit as st
 
 from seguridad_social_parte1 import (
     adaptar_admin_con_referencias,
+    construir_df_formato_comparacion,
     parse_pila_txt,
     resumen_planilla,
 )
@@ -387,8 +388,9 @@ st.markdown("</div>", unsafe_allow_html=True)
 # ---------------------------------------------------------------------------
 st.markdown('<div class="card"><div class="card-label">Exportar</div>', unsafe_allow_html=True)
 
+df_cmp = construir_df_formato_comparacion(df_f, ruta_comp, encabezado='oficial')
 csv_buf = io.StringIO()
-df_f.to_csv(csv_buf, index=False, encoding="utf-8-sig", sep=SEP)
+df_cmp.to_csv(csv_buf, index=False, encoding="utf-8-sig", sep=SEP)
 csv_bytes = csv_buf.getvalue().encode("utf-8-sig")
 nombre_csv = Path(archivo.name).stem + ".csv"
 
@@ -401,7 +403,7 @@ with col_dl:
         mime="text/csv",
     )
 with col_sv:
-    if st.checkbox("Guardar en carpeta Salida", value=True):
+    if st.checkbox("Guardar en carpeta Salida", value=False):
         (SALIDA_DIR / nombre_csv).write_bytes(csv_bytes)
         st.caption(f"Guardado en {SALIDA_DIR / nombre_csv}")
 
