@@ -888,18 +888,26 @@ def _construir_df_comparacion_snake(
     _set('fecha_ret', _serie('fecha_ret', ''))
 
     raw_vst = _serie('vst', '')
-    _set('vst', _fmt_si_no(raw_vst), mask=_mask_nonempty(raw_vst))
+    _set('vst', raw_vst)
+
+    raw_vsp = _serie('vsp', '')
+    _set('vsp', raw_vsp)
+    _set('fecha_vsp', _serie('fecha_vsp', ''))
 
     raw_sln = _serie('sln', '')
-    _set('sln', _fmt_si_no(raw_sln), mask=_mask_nonempty(raw_sln))
+    _set('sln', raw_sln)  # ya viene con label 'LICENCIA NO REMUNERADA' o 'NO'
     _set('inicio_sln', _serie('inicio_sln', ''))
     _set('fin_sln', _serie('fin_sln', ''))
 
     raw_ige = _serie('ige', '')
-    _set('ige', _fmt_si_no(raw_ige), mask=_mask_nonempty(raw_ige))
+    _set('ige', raw_ige)
 
     raw_lma = _serie('lma', '')
-    _set('lma', _fmt_si_no(raw_lma), mask=_mask_nonempty(raw_lma))
+    _set('lma', raw_lma)
+
+    # Colombiano Temporalmente en el Exterior
+    _set('colombiano_temporalmente_en_el_exterior',
+         _serie('colombiano_temporalmente_en_el_exterior', 'NO'))
 
     # Salarios
     _set('salario_mensual', _fmt_pesos(_serie('ibc', pd.Series(index=df_out.index, data=''))))
@@ -1497,24 +1505,28 @@ def _parsear_tipo02(linea: str) -> dict:
     has_ret = _char(137) == 'X'
     has_vsp = _char(142) == 'X'
     has_vst = _char(144) == 'X'
+    has_col = _char(145) == 'X'   # Colombiano Temporalmente en el Exterior
     has_sln = _char(148) == 'L'
 
-    rec['ING'] = _SISTEMAS if has_ing else 'NO'
-    rec['RET'] = _SISTEMAS if has_ret else 'NO'
-    rec['VSP'] = 'SI' if has_vsp else 'NO'
-    rec['VST'] = 'SI' if has_vst else 'NO'
-    rec['SLN'] = 'SI' if has_sln else 'NO'
-    rec['IGE'] = 'NO'
-    rec['LMA'] = 'NO'
-    rec['TDE'] = 'NO'
-    rec['TAE'] = 'NO'
-    rec['TDP'] = 'NO'
-    rec['TAP'] = 'NO'
-    rec['AVP'] = 'NO'
-    rec['VCT'] = 'NO'
-    rec['IRL'] = 'NO'
+    rec['ING']  = _SISTEMAS if has_ing else 'NO'
+    rec['RET']  = _SISTEMAS if has_ret else 'NO'
+    rec['VSP']  = 'SI' if has_vsp else 'NO'
+    rec['VST']  = 'SI' if has_vst else 'NO'
+    rec['Colombiano_Temporalmente_En_El_Exterior'] = 'SI' if has_col else 'NO'
+    # SLN: label oficial PILA (COL implica licencia no remunerada)
+    rec['SLN']  = 'LICENCIA NO REMUNERADA' if (has_sln or has_col) else 'NO'
+    rec['IGE']  = 'NO'
+    rec['LMA']  = 'NO'
+    rec['TDE']  = 'NO'
+    rec['TAE']  = 'NO'
+    rec['TDP']  = 'NO'
+    rec['TAP']  = 'NO'
+    rec['AVP']  = 'NO'
+    rec['VCT']  = 'NO'
+    rec['IRL']  = 'NO'
 
-    # Fecha ING en pos 514, Fecha RET en pos 524 (formato YYYY-MM-DD)
+    # Fechas novedades: ING=514 | RET=524 | VSP=534
+    # COL: inicio 544 / fin 554   SLN directo: inicio 604 / fin 614
     def _fecha_pos(pos: int) -> str:
         chunk = linea[pos:pos + 10] if len(linea) > pos + 10 else ''
         m = re.match(r'(\d{4})-(\d{2})-(\d{2})', chunk)
@@ -1524,9 +1536,17 @@ def _parsear_tipo02(linea: str) -> dict:
 
     rec['Fecha_ING']   = _fecha_pos(514) if has_ing else ''
     rec['Fecha_RET']   = _fecha_pos(524) if has_ret else ''
-    rec['Fecha_VSP']   = ''
-    rec['Inicio_SLN']  = ''
-    rec['Fin_SLN']     = ''
+    rec['Fecha_VSP']   = _fecha_pos(534) if has_vsp else ''
+    # Inicio/Fin SLN: COL usa 544/554; SLN directo usa 604/614
+    if has_col:
+        rec['Inicio_SLN'] = _fecha_pos(544)
+        rec['Fin_SLN']    = _fecha_pos(554)
+    elif has_sln:
+        rec['Inicio_SLN'] = _fecha_pos(604)
+        rec['Fin_SLN']    = _fecha_pos(614)
+    else:
+        rec['Inicio_SLN'] = ''
+        rec['Fin_SLN']    = ''
     rec['Inicio_IGE']  = ''
     rec['Fin_IGE']     = ''
     rec['Inicio_LMA']  = ''
