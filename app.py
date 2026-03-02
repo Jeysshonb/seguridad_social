@@ -29,7 +29,6 @@ st.set_page_config(
 BASE_DIR   = Path(__file__).parent
 SALIDA_DIR = BASE_DIR / "Salida"
 SALIDA_DIR.mkdir(parents=True, exist_ok=True)
-RUTA_REF_DEFAULT  = BASE_DIR / "seguridad_archivos" / "NOMINA REGULAR" / "pila_modificada.txt"
 RUTA_COMP_DEFAULT = BASE_DIR / "seguridad_archivos" / "NOMINA REGULAR" / "comparacion.csv"
 SEP = ";"
 
@@ -237,12 +236,9 @@ input[type="text"]            { border-radius: 10px !important; }
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
-ref_ok  = RUTA_REF_DEFAULT.exists()
 comp_ok = RUTA_COMP_DEFAULT.exists()
 
-dot_ref  = '<span class="badge-dot-ok"></span>' if ref_ok  else '<span class="badge-dot-no"></span>'
 dot_comp = '<span class="badge-dot-ok"></span>' if comp_ok else '<span class="badge-dot-no"></span>'
-lbl_ref  = f'<span class="badge badge-ok">{dot_ref} Referencia</span>'  if ref_ok  else f'<span class="badge badge-no">{dot_ref} Sin referencia</span>'
 lbl_comp = f'<span class="badge badge-ok">{dot_comp} Comparación</span>' if comp_ok else f'<span class="badge badge-no">{dot_comp} Sin comparación</span>'
 
 st.markdown(f"""
@@ -252,7 +248,6 @@ st.markdown(f"""
     <p>Procesamiento y validación de planillas PILA en formato TXT</p>
   </div>
   <div class="ssnl-badges">
-    {lbl_ref}
     {lbl_comp}
   </div>
 </div>
@@ -283,9 +278,8 @@ if archivo is None:
 with st.spinner("Procesando archivo..."):
     contenido_bytes = archivo.read()
     df, info_empresa, info_totales = parse_pila_txt(contenido_bytes)
-    ruta_ref  = RUTA_REF_DEFAULT  if ref_ok  else None
     ruta_comp = RUTA_COMP_DEFAULT if comp_ok else None
-    df = adaptar_admin_con_referencias(df, ruta_ref, ruta_comp)
+    df = adaptar_admin_con_referencias(df, None, ruta_comp)
 
 resumen = resumen_planilla(df, info_empresa)
 

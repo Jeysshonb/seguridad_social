@@ -1069,10 +1069,6 @@ def adaptar_admin_con_referencias(
     """
     Aplica overrides de nombres de administradoras a partir de referencias.
     """
-    if ruta_referencia is None:
-        ruta_def = Path(__file__).parent / 'seguridad_archivos' / 'NOMINA REGULAR' / 'pila_modificada.txt'
-        if ruta_def.exists():
-            ruta_referencia = ruta_def
     if ruta_comparacion is None:
         ruta_def = Path(__file__).parent / 'seguridad_archivos' / 'NOMINA REGULAR' / 'comparacion.csv'
         if ruta_def.exists():
@@ -1126,8 +1122,6 @@ def adaptar_admin_con_referencias(
 
     # Aplicar overrides de nombres (referencias tienen prioridad)
     if any(overrides.get(k) for k in overrides):
-        ruta_autogen = Path(__file__).with_name('codigos_admin_autogen.txt')
-        _escribir_codigos_autogen(overrides, ruta_autogen)
         for mapa in overrides.values():
             CODIGOS_ADMIN.update(mapa)
         df_out_norm = _aplicar_overrides_admin(df_out_norm, overrides)
@@ -1377,9 +1371,6 @@ def generar_reporte_inconsistencias(
         )
         inferidos.extend(inf)
 
-    # Guardar overrides autogenerados para uso futuro
-    ruta_autogen = Path(__file__).with_name('codigos_admin_autogen.txt')
-    _escribir_codigos_autogen(overrides, ruta_autogen)
     for mapa in overrides.values():
         CODIGOS_ADMIN.update(mapa)
 
@@ -1824,10 +1815,6 @@ if __name__ == '__main__':
     print(f"CSV comparacion codigos generado: {ruta_csv_cmp_cod}")
 
     ruta_ref_eff = ruta_referencia if ruta_referencia and ruta_referencia.exists() else None
-    if ruta_ref_eff is None:
-        ruta_def = Path(__file__).parent / 'seguridad_archivos' / 'NOMINA REGULAR' / 'pila_modificada.txt'
-        if ruta_def.exists():
-            ruta_ref_eff = ruta_def
 
     if ruta_ref_eff is not None:
         ruta_reporte = carpeta_salida / (archivo_entrada.stem + '_reporte.txt')
