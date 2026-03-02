@@ -75,84 +75,21 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
-/* ── Design tokens ──────────────────────────────────────── */
+/* ── Tokens fijos (acento, radio, sombras) ──────────────── */
 :root {
-    --bg:         #F0F2F8;
-    --surface:    #FFFFFF;
-    --surface-2:  #F8F9FC;
-    --border:     #E2E8F0;
-    --txt:        #0F172A;
-    --txt-soft:   #64748B;
-    --txt-xs:     #94A3B8;
-
-    --indigo:     #4F46E5;
-    --indigo-lt:  #EEF2FF;
-    --purple:     #7C3AED;
-    --purple-lt:  #F5F3FF;
-    --teal:       #0D9488;
-    --teal-lt:    #F0FDFA;
-    --emerald:    #059669;
-    --emerald-lt: #ECFDF5;
-    --amber:      #D97706;
-    --amber-lt:   #FFFBEB;
-    --cyan:       #0891B2;
-    --cyan-lt:    #ECFEFF;
-
-    --green:      #059669;
-    --green-bg:   #ECFDF5;
-    --red:        #E11D48;
-    --red-bg:     #FFF1F2;
-
-    --shadow:     0 1px 3px rgba(15,23,42,.06), 0 1px 2px rgba(15,23,42,.04);
-    --shadow-md:  0 4px 8px rgba(15,23,42,.08), 0 2px 4px rgba(15,23,42,.04);
-    --shadow-lg:  0 12px 28px rgba(15,23,42,.12), 0 4px 10px rgba(15,23,42,.06);
-    --radius:     16px;
-    --radius-sm:  10px;
+    --radius:    16px;
+    --radius-sm: 10px;
+    --shadow:    0 1px 3px rgba(0,0,0,.07);
+    --shadow-md: 0 4px 8px rgba(0,0,0,.10);
+    --shadow-lg: 0 12px 28px rgba(0,0,0,.14);
 }
 
-@media (prefers-color-scheme: dark) {
-    :root {
-        --bg:         #080D18;
-        --surface:    #0F172A;
-        --surface-2:  #141E33;
-        --border:     #1E293B;
-        --txt:        #E2E8F0;
-        --txt-soft:   #94A3B8;
-        --txt-xs:     #475569;
-
-        --indigo:     #818CF8;
-        --indigo-lt:  #1E1B4B;
-        --purple:     #A78BFA;
-        --purple-lt:  #2E1065;
-        --teal:       #2DD4BF;
-        --teal-lt:    #042F2E;
-        --emerald:    #34D399;
-        --emerald-lt: #022C22;
-        --amber:      #FCD34D;
-        --amber-lt:   #2A1800;
-        --cyan:       #22D3EE;
-        --cyan-lt:    #082F49;
-
-        --green:      #34D399;
-        --green-bg:   #022C22;
-        --red:        #FB7185;
-        --red-bg:     #4C0519;
-
-        --shadow:     0 1px 3px rgba(0,0,0,.3),  0 1px 2px rgba(0,0,0,.2);
-        --shadow-md:  0 4px 8px rgba(0,0,0,.35), 0 2px 4px rgba(0,0,0,.2);
-        --shadow-lg:  0 12px 28px rgba(0,0,0,.55), 0 4px 10px rgba(0,0,0,.3);
-    }
-}
-
-/* ── Base ───────────────────────────────────────────────── */
+/* ── Fuente — solo font, sin tocar fondo ni color ───────── */
 html, body,
 [data-testid="stAppViewContainer"],
 [data-testid="stMain"],
-section.main,
-.stApp {
-    background: var(--bg) !important;
+section.main, .stApp {
     font-family: "Plus Jakarta Sans", system-ui, sans-serif !important;
-    color: var(--txt) !important;
 }
 
 [data-testid="stSidebar"]    { display: none !important; }
@@ -160,7 +97,7 @@ section.main,
 [data-testid="stDecoration"] { display: none !important; }
 [data-testid="stToolbar"]    { display: none !important; }
 
-/* ── Header ─────────────────────────────────────────────── */
+/* ── Header (gradiente de marca — siempre oscuro, texto blanco) */
 .ssnl-header {
     background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 55%, #312e81 100%);
     border-radius: var(--radius);
@@ -170,7 +107,7 @@ section.main,
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    box-shadow: var(--shadow-lg);
+    box-shadow: 0 12px 32px rgba(79,70,229,.25);
     position: relative;
     overflow: hidden;
 }
@@ -179,7 +116,7 @@ section.main,
     position: absolute;
     width: 340px; height: 340px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(124,58,237,.4) 0%, transparent 65%);
+    background: radial-gradient(circle, rgba(124,58,237,.45) 0%, transparent 65%);
     top: -110px; right: -70px;
     pointer-events: none;
 }
@@ -227,15 +164,15 @@ section.main,
     letter-spacing: 0.4px;
     text-transform: uppercase;
 }
-.badge-ok { background: rgba(52,211,153,.15); color: #34D399; border: 1px solid rgba(52,211,153,.35); }
-.badge-no { background: rgba(251,113,133,.15); color: #FB7185; border: 1px solid rgba(251,113,133,.35); }
+.badge-ok { background: rgba(52,211,153,.18); color: #34D399; border: 1px solid rgba(52,211,153,.4); }
+.badge-no { background: rgba(251,113,133,.18); color: #FB7185; border: 1px solid rgba(251,113,133,.4); }
 .badge-dot-ok { width:6px; height:6px; border-radius:50%; background:#34D399; }
 .badge-dot-no { width:6px; height:6px; border-radius:50%; background:#FB7185; }
 
-/* ── Cards ──────────────────────────────────────────────── */
+/* ── Cards — usan el fondo secundario de Streamlit ──────── */
 .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: var(--secondary-background-color, #F8F9FC);
+    border: 1px solid rgba(128,128,128,.15);
     border-radius: var(--radius);
     padding: 22px 24px;
     margin-bottom: 18px;
@@ -246,7 +183,8 @@ section.main,
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1.2px;
-    color: var(--txt-xs);
+    color: var(--text-color);
+    opacity: .5;
     margin-bottom: 16px;
 }
 
@@ -258,8 +196,8 @@ section.main,
     margin-bottom: 22px;
 }
 .kpi {
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: var(--secondary-background-color, #F8F9FC);
+    border: 1px solid rgba(128,128,128,.15);
     border-radius: var(--radius);
     padding: 18px 20px;
     box-shadow: var(--shadow-md);
@@ -278,20 +216,18 @@ section.main,
 .kpi-cyan::before    { content:''; position:absolute; top:0;left:0;right:0;height:4px; background:linear-gradient(90deg,#0891B2,#22D3EE); border-radius:var(--radius) var(--radius) 0 0; }
 
 .kpi .k-icon { font-size: 20px; margin-bottom: 10px; display: block; }
-.kpi .k-lbl  { font-size: 11px; color: var(--txt-soft); font-weight: 600; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px; }
-.kpi .k-val  { font-size: 20px; font-weight: 800; color: var(--txt); letter-spacing: -0.5px; }
-.kpi .k-sub  { font-size: 11px; color: var(--txt-xs); margin-top: 4px; }
+.kpi .k-lbl  { font-size: 11px; color: var(--text-color); opacity:.55; font-weight: 600; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px; }
+.kpi .k-val  { font-size: 20px; font-weight: 800; color: var(--text-color); letter-spacing: -0.5px; }
+.kpi .k-sub  { font-size: 11px; color: var(--text-color); opacity:.45; margin-top: 4px; }
 
 /* ── Upload zone ────────────────────────────────────────── */
 [data-testid="stFileUploader"] > div {
-    border: 2px dashed var(--border) !important;
+    border: 2px dashed rgba(128,128,128,.25) !important;
     border-radius: var(--radius) !important;
-    background: var(--surface-2) !important;
-    transition: border-color .2s, background .2s;
+    transition: border-color .2s;
 }
 [data-testid="stFileUploader"] > div:hover {
-    border-color: var(--indigo) !important;
-    background: var(--indigo-lt) !important;
+    border-color: #4F46E5 !important;
 }
 
 /* ── Buttons ────────────────────────────────────────────── */
@@ -304,7 +240,6 @@ section.main,
     font-weight: 700 !important;
     font-size: 13px !important;
     padding: 11px 22px !important;
-    letter-spacing: 0.2px !important;
     width: 100% !important;
     box-shadow: 0 4px 14px rgba(79,70,229,.4) !important;
     transition: opacity .15s, transform .1s !important;
@@ -327,9 +262,8 @@ section.main,
 
 /* ── Expanders ──────────────────────────────────────────── */
 [data-testid="stExpander"] {
-    border: 1px solid var(--border) !important;
+    border: 1px solid rgba(128,128,128,.15) !important;
     border-radius: var(--radius) !important;
-    background: var(--surface) !important;
     box-shadow: var(--shadow) !important;
 }
 
@@ -339,9 +273,9 @@ input[type="text"]            { border-radius: var(--radius-sm) !important; }
 
 /* ── Scrollbar ──────────────────────────────────────────── */
 ::-webkit-scrollbar       { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--indigo); }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(128,128,128,.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #4F46E5; }
 </style>
 """, unsafe_allow_html=True)
 
