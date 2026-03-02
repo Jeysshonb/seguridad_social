@@ -15,6 +15,13 @@ from seguridad_social_parte1 import (
     parse_pila_txt,
     resumen_planilla,
 )
+from pila.comparacion import (
+    construir_codigos_autogen_text,
+    exportar_codigos_autogen,
+    generar_reporte_inconsistencias,
+    obtener_overrides_admin,
+)
+from pila.validacion import generar_reporte_validaciones, validar_planilla
 
 # ---------------------------------------------------------------------------
 # Configuracion
@@ -31,6 +38,44 @@ SALIDA_DIR = BASE_DIR / "Salida"
 SALIDA_DIR.mkdir(parents=True, exist_ok=True)
 RUTA_COMP_DEFAULT = BASE_DIR / "seguridad_archivos" / "NOMINA REGULAR" / "comparacion.csv"
 SEP = ";"
+
+# ---------------------------------------------------------------------------
+# Cache
+# ---------------------------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def _cached_parse(contenido_bytes: bytes):
+    return parse_pila_txt(contenido_bytes)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_adapt(df: pd.DataFrame, ruta_comp: str, ruta_comp_mtime: float | None):
+    ruta = Path(ruta_comp) if ruta_comp else None
+    return adaptar_admin_con_referencias(df, None, ruta)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_build_csv(df: pd.DataFrame, ruta_comp: str, ruta_comp_mtime: float | None, encabezado: str):
+    ruta = Path(ruta_comp) if ruta_comp else None
+    df_cmp = construir_df_formato_comparacion(df, ruta, encabezado=encabezado)
+    csv_buf = io.StringIO()
+    df_cmp.to_csv(csv_buf, index=False, encoding="utf-8-sig", sep=SEP)
+    return csv_buf.getvalue().encode("utf-8-sig")
+
+
+@st.cache_data(show_spinner=False)
+def _cached_overrides(df: pd.DataFrame, ruta_comp: str, ruta_comp_mtime: float | None):
+    ruta = Path(ruta_comp) if ruta_comp else None
+    return obtener_overrides_admin(df, None, ruta)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_validaciones(df: pd.DataFrame, info_empresa: dict, info_totales: dict):
+    return validar_planilla(df, info_empresa, info_totales)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_reporte_validaciones(df: pd.DataFrame, info_empresa: dict, info_totales: dict):
+    return generar_reporte_validaciones(df, info_empresa, info_totales)
 
 # ---------------------------------------------------------------------------
 # Estilos — responde automáticamente al tema claro/oscuro del sistema
@@ -277,11 +322,16 @@ if archivo is None:
 # ---------------------------------------------------------------------------
 with st.spinner("Procesando archivo..."):
     contenido_bytes = archivo.read()
-    df, info_empresa, info_totales = parse_pila_txt(contenido_bytes)
+    df_raw, info_empresa, info_totales = _cached_parse(contenido_bytes)
     ruta_comp = RUTA_COMP_DEFAULT if comp_ok else None
-    df = adaptar_admin_con_referencias(df, None, ruta_comp)
+    ruta_comp_mtime = ruta_comp.stat().st_mtime if ruta_comp else None
+    df = _cached_adapt(df_raw, str(ruta_comp) if ruta_comp else '', ruta_comp_mtime)
 
-resumen = resumen_planilla(df, info_empresa)
+df_ok = df
+if 'error_parseo' in df_ok.columns:
+    df_ok = df_ok[df_ok['error_parseo'].isna()]
+
+resumen = resumen_planilla(df_ok, info_empresa)
 
 # ---------------------------------------------------------------------------
 # KPIs
@@ -294,7 +344,7 @@ st.markdown(f"""
   <div class="kpi">
     <div class="k-lbl">Empleados únicos</div>
     <div class="k-val">{resumen['empleados_unicos']:,}</div>
-    <div class="k-sub">{len(df):,} registros en planilla</div>
+    <div class="k-sub">{len(df_ok):,} registros en planilla</div>
   </div>
   <div class="kpi">
     <div class="k-lbl">IBC Total</div>
@@ -325,21 +375,21 @@ st.markdown(f"""
 with st.expander("Filtros", expanded=False):
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
-        ops_eps  = sorted(df['admin_eps'].dropna().unique()) if 'admin_eps' in df.columns else []
+        ops_eps  = sorted(df_ok['admin_eps'].dropna().unique()) if 'admin_eps' in df_ok.columns else []
         f_eps    = st.multiselect("EPS", ops_eps)
     with c2:
-        ops_ccf  = sorted(df['admin_ccf'].dropna().unique()) if 'admin_ccf' in df.columns else []
+        ops_ccf  = sorted(df_ok['admin_ccf'].dropna().unique()) if 'admin_ccf' in df_ok.columns else []
         f_ccf    = st.multiselect("CCF", ops_ccf)
     with c3:
-        ops_afp  = sorted(df['admin_afp'].dropna().unique()) if 'admin_afp' in df.columns else []
+        ops_afp  = sorted(df_ok['admin_afp'].dropna().unique()) if 'admin_afp' in df_ok.columns else []
         f_afp    = st.multiselect("AFP", ops_afp)
     with c4:
-        ops_tipo = sorted(df['tipo_de_cotizante'].dropna().unique()) if 'tipo_de_cotizante' in df.columns else []
+        ops_tipo = sorted(df_ok['tipo_de_cotizante'].dropna().unique()) if 'tipo_de_cotizante' in df_ok.columns else []
         f_tipo   = st.multiselect("Tipo cotizante", ops_tipo)
     with c5:
         buscar = st.text_input("Buscar nombre / documento")
 
-df_f = df.copy()
+df_f = df_ok.copy()
 if f_eps:  df_f = df_f[df_f['admin_eps'].isin(f_eps)]
 if f_ccf:  df_f = df_f[df_f['admin_ccf'].isin(f_ccf)]
 if f_afp:  df_f = df_f[df_f['admin_afp'].isin(f_afp)]
@@ -364,7 +414,7 @@ COLS_DEFAULT = [
     'admin_eps', 'dias_eps', 'ibc_eps', 'tarifa_eps', 'valor_eps',
     'admin_arl', 'clase_arl', 'dias_arl', 'ibc_arl', 'tarifa_arl', 'valor_arl',
     'admin_ccf', 'dias_ccf', 'ibc_ccf', 'tarifa_ccf', 'valor_ccf',
-    'ibc', 'exonerado', 'cod_entidad',
+    'ibc', 'exonerado', 'actividad_economica',
 ]
 cols_disp = [c for c in COLS_DEFAULT if c in df_f.columns]
 
@@ -373,7 +423,7 @@ with st.expander("Seleccionar columnas", expanded=False):
     todas = cols_disp + [c for c in df_f.columns if c not in cols_disp]
     cols_sel = st.multiselect("Columnas visibles", todas, default=cols_disp)
 
-st.caption(f"{len(df_f):,} de {len(df):,} registros")
+st.caption(f"{len(df_f):,} de {len(df_ok):,} registros")
 st.dataframe(df_f[cols_sel] if cols_sel else df_f[cols_disp], use_container_width=True, height=500)
 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -382,26 +432,149 @@ st.markdown("</div>", unsafe_allow_html=True)
 # ---------------------------------------------------------------------------
 st.markdown('<div class="card"><div class="card-label">Exportar</div>', unsafe_allow_html=True)
 
-df_cmp = construir_df_formato_comparacion(df_f, ruta_comp, encabezado='oficial')
-csv_buf = io.StringIO()
-df_cmp.to_csv(csv_buf, index=False, encoding="utf-8-sig", sep=SEP)
-csv_bytes = csv_buf.getvalue().encode("utf-8-sig")
+encabezado = st.selectbox(
+    "Encabezado exportacion",
+    options=["snake", "oficial"],
+    index=0,
+    help="Snake_case por defecto. Usa oficial si necesitas compatibilidad con comparacion.csv.",
+)
+
+filtro_sig = (tuple(f_eps), tuple(f_ccf), tuple(f_afp), tuple(f_tipo), buscar, encabezado)
+if st.session_state.get("csv_sig") != filtro_sig:
+    st.session_state["csv_sig"] = filtro_sig
+    st.session_state["csv_ready"] = False
+
+if st.button("Generar CSV"):
+    st.session_state["csv_ready"] = True
+
 nombre_csv = Path(archivo.name).stem + ".csv"
+csv_bytes = None
+if st.session_state.get("csv_ready"):
+    csv_bytes = _cached_build_csv(
+        df_f,
+        str(ruta_comp) if ruta_comp else '',
+        ruta_comp_mtime,
+        encabezado,
+    )
+else:
+    st.caption("Haz clic en Generar CSV para preparar la descarga.")
+
+overrides = _cached_overrides(df, str(ruta_comp) if ruta_comp else '', ruta_comp_mtime)
+autogen_text = construir_codigos_autogen_text(overrides)
+autogen_bytes = autogen_text.encode("utf-8") if autogen_text else None
 
 col_dl, col_sv = st.columns([1, 2])
 with col_dl:
-    st.download_button(
-        label="Descargar CSV",
-        data=csv_bytes,
-        file_name=nombre_csv,
-        mime="text/csv",
-    )
+    if csv_bytes:
+        st.download_button(
+            label="Descargar CSV",
+            data=csv_bytes,
+            file_name=nombre_csv,
+            mime="text/csv",
+        )
+    else:
+        st.caption("CSV no generado aun.")
 with col_sv:
+    if autogen_bytes:
+        st.download_button(
+            label="Descargar codigos autogen",
+            data=autogen_bytes,
+            file_name="codigos_admin_autogen.txt",
+            mime="text/plain",
+        )
     if st.checkbox("Guardar en carpeta Salida", value=False):
-        (SALIDA_DIR / nombre_csv).write_bytes(csv_bytes)
-        st.caption(f"Guardado en {SALIDA_DIR / nombre_csv}")
+        if csv_bytes:
+            (SALIDA_DIR / nombre_csv).write_bytes(csv_bytes)
+            st.caption(f"Guardado en {SALIDA_DIR / nombre_csv}")
+        else:
+            st.caption("Genera el CSV antes de guardar.")
+        if autogen_bytes:
+            exportar_codigos_autogen(overrides, SALIDA_DIR / "codigos_admin_autogen.txt")
+            st.caption(f"Guardado en {SALIDA_DIR / 'codigos_admin_autogen.txt'}")
 
 st.markdown("</div>", unsafe_allow_html=True)
+
+# ---------------------------------------------------------------------------
+# Validaciones
+# ---------------------------------------------------------------------------
+with st.expander("Validaciones", expanded=False):
+    datos_val = _cached_validaciones(df, info_empresa, info_totales)
+    kpi = datos_val["kpis"]
+
+    kc1, kc2, kc3, kc4, kc5, kc6 = st.columns(6)
+    kc1.metric("Errores parseo", kpi["errores_parseo"])
+    kc2.metric("Tipo desconocido", kpi["registros_desconocidos"])
+    kc3.metric("Campos vacios", kpi["campos_criticos_vacios"])
+    kc4.metric("Codigos desconocidos", kpi["codigos_desconocidos"])
+    kc5.metric("Municipios desconocidos", kpi["municipios_desconocidos"])
+    kc6.metric("Inconsistencias admin", kpi["inconsistencias_admin"])
+
+    reporte_txt = _cached_reporte_validaciones(df, info_empresa, info_totales)
+    st.download_button(
+        label="Descargar reporte validaciones",
+        data=reporte_txt.encode("utf-8"),
+        file_name="reporte_validaciones.txt",
+        mime="text/plain",
+    )
+
+    st.markdown("**Errores de parseo**")
+    if datos_val["errores_parseo"].empty:
+        st.caption("Sin errores.")
+    else:
+        st.dataframe(datos_val["errores_parseo"], use_container_width=True, height=200)
+
+    st.markdown("**Campos criticos vacios**")
+    if datos_val["campos_criticos_vacios"].empty:
+        st.caption("Sin faltantes.")
+    else:
+        st.dataframe(datos_val["campos_criticos_vacios"], use_container_width=True, height=200)
+
+    st.markdown("**Codigos desconocidos**")
+    st.text(
+        "AFP: "
+        + (", ".join(datos_val["codigos_desconocidos"]["afp"]) or "(sin codigos)")
+    )
+    st.text(
+        "EPS: "
+        + (", ".join(datos_val["codigos_desconocidos"]["eps"]) or "(sin codigos)")
+    )
+    st.text(
+        "CCF: "
+        + (", ".join(datos_val["codigos_desconocidos"]["ccf"]) or "(sin codigos)")
+    )
+
+    st.markdown("**Municipios desconocidos**")
+    if datos_val["municipios_desconocidos"]:
+        st.text(", ".join(datos_val["municipios_desconocidos"]))
+    else:
+        st.caption("Sin municipios.")
+
+    st.markdown("**Inconsistencias admin**")
+    if datos_val["inconsistencias_admin"].empty:
+        st.caption("Sin inconsistencias.")
+    else:
+        st.dataframe(datos_val["inconsistencias_admin"], use_container_width=True, height=200)
+
+    st.markdown("**Reporte inconsistencias vs referencia (opcional)**")
+    ref_archivo = st.file_uploader(
+        "Sube referencia (txt/csv) para comparar",
+        type=["txt", "csv", "tsv"],
+        key="ref_cmp",
+    )
+    if ref_archivo is not None:
+        ref_bytes = ref_archivo.getvalue()
+        ref_nombre = Path(ref_archivo.name).name
+        if st.button("Generar reporte inconsistencias"):
+            ruta_ref = SALIDA_DIR / ref_nombre
+            ruta_ref.write_bytes(ref_bytes)
+            ruta_rep = SALIDA_DIR / (Path(ref_nombre).stem + "_reporte.txt")
+            generar_reporte_inconsistencias(df, ruta_ref, ruta_rep, ruta_comp)
+            st.download_button(
+                label="Descargar reporte inconsistencias",
+                data=ruta_rep.read_bytes(),
+                file_name=ruta_rep.name,
+                mime="text/plain",
+            )
 
 # ---------------------------------------------------------------------------
 # Análisis
