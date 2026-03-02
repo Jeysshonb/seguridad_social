@@ -16,10 +16,7 @@ from seguridad_social_parte1 import (
     resumen_planilla,
 )
 from pila.comparacion import (
-    construir_codigos_autogen_text,
-    exportar_codigos_autogen,
     generar_reporte_inconsistencias,
-    obtener_overrides_admin,
 )
 from pila.validacion import generar_reporte_validaciones, validar_planilla
 
@@ -60,12 +57,6 @@ def _cached_build_csv(df: pd.DataFrame, ruta_comp: str, ruta_comp_mtime: float |
     csv_buf = io.StringIO()
     df_cmp.to_csv(csv_buf, index=False, encoding="utf-8-sig", sep=SEP)
     return csv_buf.getvalue().encode("utf-8-sig")
-
-
-@st.cache_data(show_spinner=False)
-def _cached_overrides(df: pd.DataFrame, ruta_comp: str, ruta_comp_mtime: float | None):
-    ruta = Path(ruta_comp) if ruta_comp else None
-    return obtener_overrides_admin(df, None, ruta)
 
 
 @st.cache_data(show_spinner=False)
@@ -511,69 +502,34 @@ st.dataframe(df_f[cols_sel] if cols_sel else df_f[cols_disp], use_container_widt
 st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
-# Exportar — 1 solo CSV
+# Exportar
 # ---------------------------------------------------------------------------
 st.markdown('<div class="card"><div class="card-label">Exportar</div>', unsafe_allow_html=True)
 
-encabezado = st.selectbox(
-    "Encabezado exportacion",
-    options=["snake", "oficial"],
-    index=0,
-    help="Snake_case por defecto. Usa oficial si necesitas compatibilidad con comparacion.csv.",
-)
-
-filtro_sig = (tuple(f_eps), tuple(f_ccf), tuple(f_afp), tuple(f_tipo), buscar, encabezado)
-if st.session_state.get("csv_sig") != filtro_sig:
-    st.session_state["csv_sig"] = filtro_sig
-    st.session_state["csv_ready"] = False
-
-if st.button("Generar CSV"):
-    st.session_state["csv_ready"] = True
-
-nombre_csv = Path(archivo.name).stem + ".csv"
-csv_bytes = None
-if st.session_state.get("csv_ready"):
+col_enc, col_btn = st.columns([2, 1])
+with col_enc:
+    encabezado = st.selectbox(
+        "Encabezado",
+        options=["snake", "oficial"],
+        index=0,
+        help="Snake_case por defecto. Usa oficial si necesitas compatibilidad con comparacion.csv.",
+        label_visibility="collapsed",
+    )
+with col_btn:
+    nombre_csv = Path(archivo.name).stem + ".csv"
     csv_bytes = _cached_build_csv(
         df_f,
         str(ruta_comp) if ruta_comp else '',
         ruta_comp_mtime,
         encabezado,
     )
-else:
-    st.caption("Haz clic en Generar CSV para preparar la descarga.")
-
-overrides = _cached_overrides(df, str(ruta_comp) if ruta_comp else '', ruta_comp_mtime)
-autogen_text = construir_codigos_autogen_text(overrides)
-autogen_bytes = autogen_text.encode("utf-8") if autogen_text else None
-
-col_dl, col_sv = st.columns([1, 2])
-with col_dl:
-    if csv_bytes:
-        st.download_button(
-            label="Descargar CSV",
-            data=csv_bytes,
-            file_name=nombre_csv,
-            mime="text/csv",
-        )
-    else:
-        st.caption("CSV no generado aun.")
-with col_sv:
-    if autogen_bytes:
-        st.download_button(
-            label="Descargar codigos autogen",
-            data=autogen_bytes,
-            file_name="codigos_admin_autogen.txt",
-            mime="text/plain",
-        )
-    if st.checkbox("Guardar en carpeta Salida", value=False):
-        if csv_bytes:
-            (SALIDA_DIR / nombre_csv).write_bytes(csv_bytes)
-            st.caption(f"Guardado en {SALIDA_DIR / nombre_csv}")
-        else:
-            st.caption("Genera el CSV antes de guardar.")
-        if autogen_bytes:
-            exportar_codigos_autogen(overrides, SALIDA_DIR / "codigos_admin_autogen.txt")
-            st.caption(f"Guardado en {SALIDA_DIR / 'codigos_admin_autogen.txt'}")
+    st.download_button(
+        label="Descargar CSV",
+        data=csv_bytes,
+        file_name=nombre_csv,
+        mime="text/csv",
+        use_container_width=True,
+    )
 
 st.markdown("</div>", unsafe_allow_html=True)
 
